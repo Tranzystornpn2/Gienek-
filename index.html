@@ -54,15 +54,19 @@
         let faceDetection = null;
 
         function uruchomiOS() {
-            document.getElementById('startBtn').style.display = 'none';
-            statusTxt.innerText = "Aktywacja A13 Bionic...";
-            
-            // Konieczne opóźnienie dla Safari, żeby uprawnienia zaskoczyły poprawnie
-            setTimeout(() => {
-                uruchomWzrok();
-                uruchomSluch();
-            }, 500);
-        }
+    document.getElementById('startBtn').style.display = 'none';
+    statusTxt.innerText = "Aktywacja A13 Bionic...";
+    
+    // TĄ LINIJKĘ DODAJEMY - Odblokowuje głośnik na iOS!
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
+    
+    setTimeout(() => {
+        uruchomWzrok();
+        uruchomSluch();
+    }, 500);
+}
+
+        
 
         // ==========================================
         // 1. WZROK: MediaPipe (Zoptymalizowane pod iOS Safari)
