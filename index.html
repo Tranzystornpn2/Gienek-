@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 18.3 (Poprawka Wizji)</title>
+    <title>Gienek 18.4 (Rewers Y)</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -81,16 +81,17 @@
                 faceDetection.onResults((results) => {
                     if (results.detections && results.detections.length > 0) {
                         try {
-                            // POPRAWKA: Prawidłowe nazewnictwo zmiennych (boundingBox)
                             const det = results.detections[0];
                             const box = det.boundingBox; 
                             
-                            // Kuloodporne obliczanie środka twarzy
                             let cx = (box.xCenter !== undefined) ? box.xCenter : ((box.xMin || box.xmin || 0) + (box.width / 2));
                             let cy = (box.yCenter !== undefined) ? box.yCenter : ((box.yMin || box.ymin || 0) + (box.height / 2));
                             
+                            // ==========================================
+                            // TUTAJ ZROBIONO REWERS OSI Y (góra/dół):
                             let x = Math.max(0, Math.min(180, Math.round(160 - (cx * 140))));
-                            let y = Math.max(0, Math.min(180, Math.round(20 + (cy * 140))));
+                            let y = Math.max(0, Math.min(180, Math.round(160 - (cy * 140)))); 
+                            // ==========================================
                             
                             wyslijDoESP(x, y, 1);
                             stanKameraTxt.innerHTML = `<b>WIDZĘ TWARZ!</b><br>X=${x}°, Y=${y}°<br>Pakiety wysłane: ${licznikWysylania}`;
@@ -105,9 +106,7 @@
 
                 const camera = new Camera(videoElement, {
                     onFrame: async () => { 
-                        try {
-                            await faceDetection.send({image: videoElement}); 
-                        } catch(e) { }
+                        try { await faceDetection.send({image: videoElement}); } catch(e) { }
                     },
                     width: 320, height: 240
                 });
