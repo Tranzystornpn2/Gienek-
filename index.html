@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 21.0 (Animatronika)</title>
+    <title>Gienek 22.0 (Stabilna Animatronika)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -71,7 +71,6 @@
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
 
-        // ZMIENNE ANIMATRONIKI
         let glatkiX = 90; let glatkiY = 90;
         let ostatniX = 90; let ostatniY = 90;
         let celBladzeniaX = 90; let celBladzeniaY = 90;
@@ -79,13 +78,12 @@
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
 
-        // Generator mrugania (Działa stale w tle)
         function cyklMrugania() {
             if (trybAktywny) {
                 mruga = true;
-                setTimeout(() => { mruga = false; }, 150); // Błysk powiek 150ms
+                setTimeout(() => { mruga = false; }, 150); 
             }
-            setTimeout(cyklMrugania, Math.random() * 4000 + 2000); // Następne mrugnięcie za 2 do 6 sekund
+            setTimeout(cyklMrugania, Math.random() * 4000 + 2000); 
         }
         setTimeout(cyklMrugania, 2000);
 
@@ -93,18 +91,34 @@
         function trymuj(dx, dy) { if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; } else { offsetX += dx; offsetY += dy; } document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY; }
         function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
 
-        async function uruchomiOS() {
+        // --- SYNCHRONICZNY START (Naprawa głosu na iOS) ---
+        function uruchomiOS() {
+            // To musi być wykonane natychmiast bez żadnych opóźnień "await"
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+            
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
+            stanSystemuTxt.innerText = "Start systemów...";
             
+            // Resztę odpalamy kawałek dalej, zwalniając wątek
+            setTimeout(uruchomReszte, 100);
+        }
+
+        async function uruchomReszte() {
+            // Próba wzbudzenia mikrofonu w tle (bez niszczenia TTS)
+            try {
+                const strumien = await navigator.mediaDevices.getUserMedia({ audio: true });
+                strumien.getTracks().forEach(t => t.stop());
+            } catch(e) {
+                console.log("Mikrofon czeka na uprawnienia w Safari");
+            }
+
             const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
             mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#00ffcc"; });
             
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
-            stanSystemuTxt.innerText = "Trwa start generatorów...";
-
-            setTimeout(() => { uruchomWzrok(); uruchomSluch(); }, 500);
+            uruchomSluch();
+            setTimeout(uruchomWzrok, 500);
         }
 
         function uruchomWzrok() {
@@ -132,16 +146,12 @@
                     } catch(e) {}
                 }
 
-                // UKŁAD ZAPOBIEGAJĄCY PANICE (Anti-Jitter)
                 if (!widziKogos) {
                     if (teraz - czasOstatniejTwarzy < 2000) {
-                        // Zamrożenie na 2 sekundy w ostatnim punkcie skupienia
                         docelowyX = ostatniX; docelowyY = ostatniY;
                     } 
-                    // Jeśli upłynęło więcej niż 2s, cel to znów centrum (90), wygładzanie sprowadzi go tam powoli
                 }
 
-                // TRYB MYŚLICIELA - Błądzenie wzrokiem podczas mówienia
                 if (czyMowi) {
                     if (teraz - czasZmianyBladzenia > (Math.random() * 800 + 700)) {
                         celBladzeniaX = (widziKogos ? ostatniX : (90 + offsetX)) + (Math.random() * 40 - 20);
@@ -151,17 +161,16 @@
                     docelowyX = celBladzeniaX; docelowyY = celBladzeniaY;
                 }
 
-                // FILTR DOLNOPRZEPUSTOWY - Płynna mechanika ruchu bez szarpania
                 glatkiX = glatkiX + (docelowyX - glatkiX) * 0.15;
                 glatkiY = glatkiY + (docelowyY - glatkiY) * 0.15;
 
                 let finalX = Math.round(glatkiX);
                 let finalY = Math.round(glatkiY);
 
-                // STAN POWIEK
-                let w = 1;
-                if (!trybAktywny) w = 0;
-                else if (mruga) w = 0;
+                // --- NOWA LOGIKA POWIEK ---
+                let w = 1; // Otwórz
+                if (!widziKogos && !trybAktywny) w = 0; // Zamknij jeśli nie widzi twarzy ANI nie jest obudzony
+                else if (mruga) w = 0; // Mrugnij
 
                 wyslijDoESP(finalX, finalY, w);
             });
@@ -173,14 +182,14 @@
         }
 
         function wyslijDoESP(x, y, widzi) {
-            if (!gotowyDoWysylania || Date.now() - ostWysylka < 50) return; // Przyspieszony interwał dla płynności
+            if (!gotowyDoWysylania || Date.now() - ostWysylka < 50) return; 
             ostWysylka = Date.now();
             mostRadiowy.publish("warsztat_gienek_12345/oczy", `${x},${y},${widzi}`);
         }
 
         function uruchomSluch() {
             window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Mikrofon odrzucony."; return; }
+            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Brak obsługi rozpoznawania mowy."; return; }
 
             rozpoznawanieMowy = new SpeechRecognition();
             rozpoznawanieMowy.lang = 'pl-PL'; rozpoznawanieMowy.continuous = true; rozpoznawanieMowy.interimResults = false;
@@ -201,8 +210,8 @@
             };
             rozpoznawanieMowy.onend = () => { if (!czyMowi) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); };
             
-            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Gienek śpi. Powiedz 'Gienek' by go obudzić."; } 
-            catch(e) { stanSystemuTxt.innerText = "Awaria mikrofonu."; }
+            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wywołać."; } 
+            catch(e) { stanSystemuTxt.innerText = "Sprawdź ustawienia mikrofonu Safari!"; }
         }
 
         async function zapytajGemini(pytanie) {
@@ -216,7 +225,7 @@
                 if(data.candidates && data.candidates[0].content.parts[0].text) {
                     powiedz(data.candidates[0].content.parts[0].text);
                 }
-            } catch (e) { stanSystemuTxt.innerText = "Brak połączenia z chmurą myślową."; }
+            } catch (e) { stanSystemuTxt.innerText = "Błąd AI."; }
         }
 
         function powiedz(tekst) {
