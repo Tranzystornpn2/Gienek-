@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 22.3 (Powrót Gemini 2.5)</title>
+    <title>Gienek 22.4 (Fix Nagłówków API)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -68,7 +68,7 @@
 
         let mostRadiowy = null; let gotowyDoWysylania = false; let ostWysylka = 0;
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
-        let aktualnaWypowiedz = null; // Zabezpieczenie przed błędem ucinania mowy w Safari
+        let aktualnaWypowiedz = null; 
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
@@ -94,7 +94,7 @@
         function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
 
         function uruchomiOS() {
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); // Odblokowanie sprzętowe głosu
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
             stanSystemuTxt.innerText = "Start systemów...";
@@ -206,15 +206,24 @@
         }
 
         async function zapytajGemini(pytanie) {
+            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
+                stanSystemuTxt.innerText = "BŁĄD: Zapomniałeś wkleić klucza API do kodu!";
+                stanSystemuTxt.style.color = "#ff3b30";
+                return;
+            }
+
             stanSystemuTxt.innerText = "Myślę...";
             stanSystemuTxt.style.color = "#00ffcc";
 
             try {
-                // POWRÓT DO DZIAŁAJĄCEGO MODELU 2.5 Z WERSJI 21 I 22.0!
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+                // Klucz jest teraz bezpiecznie wysyłany w nagłówku, z dala od adresu URL
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': GEMINI_KEY 
+                    },
                     body: JSON.stringify({
                         contents: [{
                             parts: [{
@@ -232,13 +241,7 @@
                     }
                 } else {
                     const err = await response.json();
-                    if (response.status === 429) {
-                        stanSystemuTxt.innerText = "BŁĄD AI: Wyczerpany darmowy limit zapytań (429)!";
-                    } else if (response.status === 400 || response.status === 403) {
-                        stanSystemuTxt.innerText = "BŁĄD AI: Odrzucono klucz API!";
-                    } else {
-                        stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
-                    }
+                    stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
                     stanSystemuTxt.style.color = "#ff3b30";
                 }
             } catch (e) {
@@ -250,7 +253,6 @@
         function powiedz(tekst) {
             if (rozpoznawanieMowy) { try { rozpoznawanieMowy.abort(); } catch(e){} }
             
-            // Poprawka dla Safari: Trzymanie referencji globalnej zapobiega ucinaniu mowy
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
             aktualnaWypowiedz.pitch = 0.7; 
