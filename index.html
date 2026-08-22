@@ -4,33 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Gienek 16 Pro</title>
+    <title>Gienek 16.0 (Hack)</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
     
     <style>
-        body { background: #000; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: -apple-system, sans-serif; overflow: hidden; }
-        
-        .usta {
-            width: 75%; height: 25px; background-color: #00ffcc; border-radius: 40px;
-            transition: height 0.1s ease-in-out, border-radius 0.1s ease-in-out; margin-bottom: 20px;
-        }
+        body { background: #000; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; overflow: hidden; }
+        .usta { width: 75%; height: 25px; background-color: #00ffcc; border-radius: 40px; transition: height 0.1s; margin-bottom: 20px; }
         .mowi { height: 160px; border-radius: 20px; }
         .spi { height: 4px; background: #333; }
-        
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
-        #status { font-size: 14px; color: #666; position: absolute; bottom: 30px; text-align: center; padding: 0 20px;}
+        #status { font-size: 14px; color: #666; position: absolute; bottom: 30px; text-align: center; }
         video { display: none; }
-
-        /* Panel Kalibracji */
         #ustawieniaBtn { position: absolute; top: 20px; right: 20px; font-size: 30px; background: none; border: none; cursor: pointer; display: none; }
         #panelTrymera { display: none; position: absolute; top: 10%; background: rgba(30,30,30,0.95); padding: 20px; border-radius: 15px; text-align: center; border: 2px solid #00ffcc; z-index: 200; }
         .strzalki { display: grid; grid-template-columns: 60px 60px 60px; gap: 10px; margin: 20px 0; justify-content: center;}
-        .btnKierunek { padding: 15px; font-size: 24px; background: #444; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        .btnKierunek:active { background: #00ffcc; color: black; }
-        #zapiszBtn { padding: 10px 20px; font-size: 18px; background: #00ffcc; color: black; border: none; border-radius: 8px; font-weight: bold; }
+        .btnKierunek { padding: 15px; font-size: 24px; background: #444; color: white; border: none; border-radius: 10px; }
+        #zapiszBtn { padding: 10px 20px; font-size: 18px; background: #00ffcc; color: black; border: none; border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -39,77 +30,61 @@
     <button id="startBtn" onclick="uruchomiOS()">SYSTEM START</button>
     
     <div class="usta spi" id="ustaGienka"></div>
-    <div id="status">Czekam na zapłon... (Wersja 13.0)</div>
+    <div id="status">Wersja 16.0 (Trik z pikselem)</div>
     <video id="webcam" autoplay playsinline></video>
 
     <!-- UI KALIBRACJI -->
     <div id="panelTrymera">
         <h3>Trymer Oczu</h3>
-        <p style="font-size: 12px; color: #aaa;">Patrz w kamerę i ustaw środek wzroku</p>
         <div class="strzalki">
-            <div></div>
-            <button class="btnKierunek" onclick="trymuj(0, -5)">⬆️</button>
-            <div></div>
+            <div></div><button class="btnKierunek" onclick="trymuj(0, -5)">⬆️</button><div></div>
             <button class="btnKierunek" onclick="trymuj(5, 0)">⬅️</button>
             <button class="btnKierunek" onclick="trymuj(0, 0)">🔄</button>
             <button class="btnKierunek" onclick="trymuj(-5, 0)">➡️</button>
-            <div></div>
-            <button class="btnKierunek" onclick="trymuj(0, 5)">⬇️</button>
-            <div></div>
+            <div></div><button class="btnKierunek" onclick="trymuj(0, 5)">⬇️</button><div></div>
         </div>
         <p>Offset X: <span id="txtOffX">0</span> | Offset Y: <span id="txtOffY">0</span></p>
         <button id="zapiszBtn" onclick="zapiszTrymer()">ZAPISZ I ZAMKNIJ</button>
     </div>
 
     <script>
+        // ========================================================
+        // 1. TUTAJ WPISZ NOWE IP, KTÓRE DOSTAŁ GIENEK Z RUTERA
+        const ESP_IP = "192.168.68.123"; // ZMIEŃ TO!
+        
+        // 2. TUTAJ WKLEJ KLUCZ AI STUDIO (GEMINI)
+        const GEMINI_KEY = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg"; 
+        // ========================================================
+
         const usta = document.getElementById('ustaGienka');
         const statusTxt = document.getElementById('status');
         const videoElement = document.getElementById('webcam');
-        const ESP_IP = "192.168.68.123"; 
-        
-        // ========================================================
-        // WKLEJ TUTAJ SWÓJ KLUCZ Z AI STUDIO
-        // ========================================================
-        const GEMINI_KEY = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg"; 
 
-        // Pamięć kalibracji
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
-
-        let czyMowi = false;
-        let trybAktywny = false;
-        let rozpoznawanieMowy = null;
-        let faceDetection = null;
+        let czyMowi = false; let trybAktywny = false; let rozpoznawanieMowy = null; let faceDetection = null;
 
         function uruchomiOS() {
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
-            statusTxt.innerText = "Aktywacja systemu...";
-            
             window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
-            
             setTimeout(() => { uruchomWzrok(); uruchomSluch(); }, 500);
         }
 
-        // FUNKCJE KALIBRACJI
         function pokazTrymer() {
             document.getElementById('panelTrymera').style.display = 'block';
-            document.getElementById('txtOffX').innerText = offsetX;
-            document.getElementById('txtOffY').innerText = offsetY;
+            document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY;
         }
 
         function trymuj(dx, dy) {
-            if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; } // Reset na środek
+            if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; }
             else { offsetX += dx; offsetY += dy; }
-            document.getElementById('txtOffX').innerText = offsetX;
-            document.getElementById('txtOffY').innerText = offsetY;
+            document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY;
         }
 
         function zapiszTrymer() {
-            localStorage.setItem('gienekOffsetX', offsetX);
-            localStorage.setItem('gienekOffsetY', offsetY);
+            localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY);
             document.getElementById('panelTrymera').style.display = 'none';
-            statusTxt.innerText = "Kalibracja zapisana w pamięci!";
         }
 
         function uruchomWzrok() {
@@ -117,24 +92,18 @@
             faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
 
             faceDetection.onResults((results) => {
-                if (!trybAktywny && document.getElementById('panelTrymera').style.display === 'none') return; 
-                
-                if (results.detections.length > 0) {
-                    const box = results.detections[0].bounding_box;
-                    const cx = box.xmin + box.width / 2;
-                    const cy = box.ymin + box.height / 2;
-                    
-                    // Aplikacja Offsetu z kalibracji
-                    let x = Math.round(160 - (cx * 140)) + offsetX;
-                    let y = Math.round(20 + (cy * 140)) + offsetY;
-                    
-                    // Zabezpieczenie mechaniczne (Limiter 0-180 stopni)
-                    x = Math.max(0, Math.min(180, x));
-                    y = Math.max(0, Math.min(180, y));
-
-                    wyslijDoESP(x, y, 1); 
-                } else {
-                    wyslijDoESP(90 + offsetX, 90 + offsetY, 0); 
+                if (document.getElementById('panelTrymera').style.display !== 'none' || trybAktywny) { 
+                    if (results.detections.length > 0) {
+                        const box = results.detections[0].bounding_box;
+                        const cx = box.xmin + box.width / 2;
+                        const cy = box.ymin + box.height / 2;
+                        
+                        let x = Math.max(0, Math.min(180, Math.round(160 - (cx * 140)) + offsetX));
+                        let y = Math.max(0, Math.min(180, Math.round(20 + (cy * 140)) + offsetY));
+                        wyslijDoESP(x, y, 1); 
+                    } else {
+                        wyslijDoESP(90 + offsetX, 90 + offsetY, 0); 
+                    }
                 }
             });
 
@@ -147,14 +116,19 @@
 
         let ostWysylka = 0;
         function wyslijDoESP(x, y, widzi) {
+            // Ograniczamy wysyłanie do ok. 10 klatek na sekundę, żeby nie zapchać bufora ESP
             if (Date.now() - ostWysylka < 100) return;
             ostWysylka = Date.now();
-            fetch(`http://${ESP_IP}/set?x=${x}&y=${y}&w=${widzi}`, { mode: 'no-cors' }).catch(err => {}); 
+            
+            // HACK: Niewidzialny piksel omijający blokadę Safari!
+            let unikalnyCzas = Date.now();
+            let ukrytyObrazek = new Image();
+            ukrytyObrazek.src = `http://${ESP_IP}/set?x=${x}&y=${y}&w=${widzi}&t=${unikalnyCzas}`;
         }
 
         function uruchomSluch() {
             window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!window.SpeechRecognition) { statusTxt.innerText = "Błąd: Brak wsparcia mowy!"; return; }
+            if (!window.SpeechRecognition) return;
 
             rozpoznawanieMowy = new SpeechRecognition();
             rozpoznawanieMowy.lang = 'pl-PL';
@@ -166,37 +140,29 @@
                 
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
-                        trybAktywny = true;
-                        usta.classList.remove('spi');
-                        statusTxt.innerText = "System aktywny.";
-                        powiedz("Melduję gotowość. Co rzeźbimy?");
+                        trybAktywny = true; usta.classList.remove('spi'); powiedz("Słucham?");
                     }
                 } else {
                     if (tekst.includes("idź spać")) {
                         trybAktywny = false; usta.classList.add('spi');
-                        wyslijDoESP(90 + offsetX, 90 + offsetY, 0);
-                        powiedz("Przechodzę w stan uśpienia."); return;
+                        wyslijDoESP(90 + offsetX, 90 + offsetY, 0); powiedz("Dobranoc."); return;
                     }
-                    statusTxt.innerText = "Myślę... " + tekst;
                     await zapytajGemini(tekst);
                 }
             };
             rozpoznawanieMowy.onend = () => { if (!czyMowi) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); };
             rozpoznawanieMowy.start();
-            statusTxt.innerText = "Nasłuchuję komendy: 'Gienek'";
         }
 
         async function zapytajGemini(pytanie) {
             try {
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: "Jesteś Gienek, mechanik z sarkastycznym humorem. Odpowiadaj krótko w max 2 zdaniach. Pytanie: " + pytanie }] }] })
+                    body: JSON.stringify({ contents: [{ parts: [{ text: "Jesteś mechanikiem o imieniu Gienek. Odpowiadaj bardzo krótko, max 2 zdania. Pytanie: " + pytanie }] }] })
                 });
                 const data = await response.json();
-                if (data.error) { statusTxt.innerText = "Błąd AI: " + data.error.message; return; }
-                let odpowiedz = data.candidates[0].content.parts[0].text;
-                statusTxt.innerText = odpowiedz; powiedz(odpowiedz);
-            } catch (e) { statusTxt.innerText = "Błąd: " + e.message; }
+                powiedz(data.candidates[0].content.parts[0].text);
+            } catch (e) { statusTxt.innerText = "Błąd AI"; }
         }
 
         function powiedz(tekst) {
