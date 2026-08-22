@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 22.2 (Naprawa API)</title>
+    <title>Gienek 22.3 (Powrót Gemini 2.5)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -57,7 +57,6 @@
 
     <script>
         // ==========================================
-        // WKLEJ TUTAJ KLUCZ (Skrypt sam usunie zbędne spacje)
         const SUROWY_KLUCZ = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg";
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
@@ -69,6 +68,7 @@
 
         let mostRadiowy = null; let gotowyDoWysylania = false; let ostWysylka = 0;
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
+        let aktualnaWypowiedz = null; // Zabezpieczenie przed błędem ucinania mowy w Safari
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
@@ -94,7 +94,7 @@
         function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
 
         function uruchomiOS() {
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); // Odblokowanie sprzętowe głosu
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
             stanSystemuTxt.innerText = "Start systemów...";
@@ -202,71 +202,69 @@
             rozpoznawanieMowy.onend = () => { if (!czyMowi) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); };
             
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wywołać."; } 
-            catch(e) { stanSystemuTxt.innerText = "Sprawdź ustawienia Safari."; }
+            catch(e) { stanSystemuTxt.innerText = "Sprawdź uprawnienia mikrofonu!"; }
         }
 
         async function zapytajGemini(pytanie) {
             stanSystemuTxt.innerText = "Myślę...";
             stanSystemuTxt.style.color = "#00ffcc";
 
-            const modele = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"];
-            let sukces = false;
-
-            for (let model of modele) {
-                try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{
-                                    text: "Jesteś Gienek, mechanik samochodowy i elektronik w warsztacie. Odpowiadaj bardzo krótko, maksymalnie 2 konkretne zdania z humorem technicznym. Pytanie: " + pytanie
-                                }]
+            try {
+                // POWRÓT DO DZIAŁAJĄCEGO MODELU 2.5 Z WERSJI 21 I 22.0!
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{
+                                text: "Jesteś Gienek, mechanik samochodowy i elektronik w warsztacie w Goczałkowicach-Zdroju. Odpowiadaj bardzo krótko, maksymalnie 2 konkretne zdania z humorem technicznym. Pytanie: " + pytanie
                             }]
-                        })
-                    });
+                        }]
+                    })
+                });
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (odp) {
-                            powiedz(odp);
-                            sukces = true;
-                            break;
-                        }
-                    } else if (response.status !== 404) {
-                        // Jeśli błąd to np. zły klucz (400 / 403), pokażmy to
-                        const err = await response.json();
-                        stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
-                        stanSystemuTxt.style.color = "#ff3b30";
-                        return;
+                if (response.ok) {
+                    const data = await response.json();
+                    const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (odp) {
+                        powiedz(odp);
                     }
-                } catch (e) {
-                    console.log("Błąd z modelem " + model + ":", e);
+                } else {
+                    const err = await response.json();
+                    if (response.status === 429) {
+                        stanSystemuTxt.innerText = "BŁĄD AI: Wyczerpany darmowy limit zapytań (429)!";
+                    } else if (response.status === 400 || response.status === 403) {
+                        stanSystemuTxt.innerText = "BŁĄD AI: Odrzucono klucz API!";
+                    } else {
+                        stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
+                    }
+                    stanSystemuTxt.style.color = "#ff3b30";
                 }
-            }
-
-            if (!sukces && stanSystemuTxt.style.color !== "rgb(255, 59, 48)") {
-                stanSystemuTxt.innerText = "BŁĄD AI: Wszystkie modele zwróciły 404. Sprawdź poprawność klucza API!";
+            } catch (e) {
+                stanSystemuTxt.innerText = "Brak połączenia z chmurą.";
                 stanSystemuTxt.style.color = "#ff3b30";
             }
         }
 
         function powiedz(tekst) {
             if (rozpoznawanieMowy) { try { rozpoznawanieMowy.abort(); } catch(e){} }
-            const utterance = new SpeechSynthesisUtterance(tekst);
-            utterance.lang = 'pl-PL'; utterance.pitch = 0.7; utterance.rate = 1.0; 
+            
+            // Poprawka dla Safari: Trzymanie referencji globalnej zapobiega ucinaniu mowy
+            aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
+            aktualnaWypowiedz.lang = 'pl-PL'; 
+            aktualnaWypowiedz.pitch = 0.7; 
+            aktualnaWypowiedz.rate = 1.0; 
             
             czyMowi = true; stanSystemuTxt.innerText = "Gienek odpowiada...";
             let interwalKlapania = setInterval(() => { usta.classList.toggle('mowi'); }, 150);
             
-            utterance.onend = () => {
+            aktualnaWypowiedz.onend = () => {
                 clearInterval(interwalKlapania); usta.classList.remove('mowi'); czyMowi = false;
                 stanSystemuTxt.innerText = "Nasłuchiwanie otoczenia...";
                 setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 400);
             };
-            window.speechSynthesis.speak(utterance);
+            window.speechSynthesis.speak(aktualnaWypowiedz);
         }
     </script>
 </body>
