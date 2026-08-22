@@ -12,35 +12,69 @@
     
     <style>
         body { background: #000; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: -apple-system, sans-serif; overflow: hidden; }
+        
         .usta {
             width: 75%; height: 25px; background-color: #00ffcc; border-radius: 40px;
             transition: height 0.1s ease-in-out, border-radius 0.1s ease-in-out; margin-bottom: 20px;
         }
         .mowi { height: 160px; border-radius: 20px; }
         .spi { height: 4px; background: #333; }
+        
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
         #status { font-size: 14px; color: #666; position: absolute; bottom: 30px; text-align: center; padding: 0 20px;}
         video { display: none; }
+
+        /* Panel Kalibracji */
+        #ustawieniaBtn { position: absolute; top: 20px; right: 20px; font-size: 30px; background: none; border: none; cursor: pointer; display: none; }
+        #panelTrymera { display: none; position: absolute; top: 10%; background: rgba(30,30,30,0.95); padding: 20px; border-radius: 15px; text-align: center; border: 2px solid #00ffcc; z-index: 200; }
+        .strzalki { display: grid; grid-template-columns: 60px 60px 60px; gap: 10px; margin: 20px 0; justify-content: center;}
+        .btnKierunek { padding: 15px; font-size: 24px; background: #444; color: white; border: none; border-radius: 10px; cursor: pointer; }
+        .btnKierunek:active { background: #00ffcc; color: black; }
+        #zapiszBtn { padding: 10px 20px; font-size: 18px; background: #00ffcc; color: black; border: none; border-radius: 8px; font-weight: bold; }
     </style>
 </head>
 <body>
 
+    <button id="ustawieniaBtn" onclick="pokazTrymer()">⚙️</button>
     <button id="startBtn" onclick="uruchomiOS()">SYSTEM START</button>
+    
     <div class="usta spi" id="ustaGienka"></div>
-    <div id="status">Czekam na kalibrację... (Wersja 12.0)</div>
+    <div id="status">Czekam na zapłon... (Wersja 13.0)</div>
     <video id="webcam" autoplay playsinline></video>
+
+    <!-- UI KALIBRACJI -->
+    <div id="panelTrymera">
+        <h3>Trymer Oczu</h3>
+        <p style="font-size: 12px; color: #aaa;">Patrz w kamerę i ustaw środek wzroku</p>
+        <div class="strzalki">
+            <div></div>
+            <button class="btnKierunek" onclick="trymuj(0, -5)">⬆️</button>
+            <div></div>
+            <button class="btnKierunek" onclick="trymuj(5, 0)">⬅️</button>
+            <button class="btnKierunek" onclick="trymuj(0, 0)">🔄</button>
+            <button class="btnKierunek" onclick="trymuj(-5, 0)">➡️</button>
+            <div></div>
+            <button class="btnKierunek" onclick="trymuj(0, 5)">⬇️</button>
+            <div></div>
+        </div>
+        <p>Offset X: <span id="txtOffX">0</span> | Offset Y: <span id="txtOffY">0</span></p>
+        <button id="zapiszBtn" onclick="zapiszTrymer()">ZAPISZ I ZAMKNIJ</button>
+    </div>
 
     <script>
         const usta = document.getElementById('ustaGienka');
         const statusTxt = document.getElementById('status');
         const videoElement = document.getElementById('webcam');
-
         const ESP_IP = "192.168.1.100"; 
         
         // ========================================================
-        // WKLEJ TUTAJ SWÓJ KLUCZ Z AI STUDIO (W CUDZYSŁOWACH)
+        // WKLEJ TUTAJ SWÓJ KLUCZ Z AI STUDIO
         // ========================================================
         const GEMINI_KEY = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg"; 
+
+        // Pamięć kalibracji
+        let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
+        let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
 
         let czyMowi = false;
         let trybAktywny = false;
@@ -49,15 +83,33 @@
 
         function uruchomiOS() {
             document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('ustawieniaBtn').style.display = 'block';
             statusTxt.innerText = "Aktywacja systemu...";
             
-            // Odblokowanie audio na iOS
             window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
             
-            setTimeout(() => {
-                uruchomWzrok();
-                uruchomSluch();
-            }, 500);
+            setTimeout(() => { uruchomWzrok(); uruchomSluch(); }, 500);
+        }
+
+        // FUNKCJE KALIBRACJI
+        function pokazTrymer() {
+            document.getElementById('panelTrymera').style.display = 'block';
+            document.getElementById('txtOffX').innerText = offsetX;
+            document.getElementById('txtOffY').innerText = offsetY;
+        }
+
+        function trymuj(dx, dy) {
+            if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; } // Reset na środek
+            else { offsetX += dx; offsetY += dy; }
+            document.getElementById('txtOffX').innerText = offsetX;
+            document.getElementById('txtOffY').innerText = offsetY;
+        }
+
+        function zapiszTrymer() {
+            localStorage.setItem('gienekOffsetX', offsetX);
+            localStorage.setItem('gienekOffsetY', offsetY);
+            document.getElementById('panelTrymera').style.display = 'none';
+            statusTxt.innerText = "Kalibracja zapisana w pamięci!";
         }
 
         function uruchomWzrok() {
@@ -65,21 +117,29 @@
             faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
 
             faceDetection.onResults((results) => {
-                if (!trybAktywny) return; 
+                if (!trybAktywny && document.getElementById('panelTrymera').style.display === 'none') return; 
+                
                 if (results.detections.length > 0) {
                     const box = results.detections[0].bounding_box;
                     const cx = box.xmin + box.width / 2;
                     const cy = box.ymin + box.height / 2;
-                    let x = Math.round(160 - (cx * 140));
-                    let y = Math.round(20 + (cy * 140));
+                    
+                    // Aplikacja Offsetu z kalibracji
+                    let x = Math.round(160 - (cx * 140)) + offsetX;
+                    let y = Math.round(20 + (cy * 140)) + offsetY;
+                    
+                    // Zabezpieczenie mechaniczne (Limiter 0-180 stopni)
+                    x = Math.max(0, Math.min(180, x));
+                    y = Math.max(0, Math.min(180, y));
+
                     wyslijDoESP(x, y, 1); 
                 } else {
-                    wyslijDoESP(90, 90, 0); 
+                    wyslijDoESP(90 + offsetX, 90 + offsetY, 0); 
                 }
             });
 
             const camera = new Camera(videoElement, {
-                onFrame: async () => { if (trybAktywny) await faceDetection.send({image: videoElement}); },
+                onFrame: async () => { await faceDetection.send({image: videoElement}); },
                 width: 320, height: 240
             });
             camera.start();
@@ -94,10 +154,7 @@
 
         function uruchomSluch() {
             window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!window.SpeechRecognition) {
-                statusTxt.innerText = "Błąd: Brak wsparcia mowy!";
-                return;
-            }
+            if (!window.SpeechRecognition) { statusTxt.innerText = "Błąd: Brak wsparcia mowy!"; return; }
 
             rozpoznawanieMowy = new SpeechRecognition();
             rozpoznawanieMowy.lang = 'pl-PL';
@@ -111,73 +168,47 @@
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
                         trybAktywny = true;
                         usta.classList.remove('spi');
-                        statusTxt.innerText = "System operacyjny aktywny.";
-                        powiedz("Melduję gotowość. Co się popsuło?");
+                        statusTxt.innerText = "System aktywny.";
+                        powiedz("Melduję gotowość. Co rzeźbimy?");
                     }
                 } else {
                     if (tekst.includes("idź spać")) {
-                        trybAktywny = false;
-                        usta.classList.add('spi');
-                        wyslijDoESP(90,90,0);
-                        powiedz("Przechodzę w stan uśpienia.");
-                        return;
+                        trybAktywny = false; usta.classList.add('spi');
+                        wyslijDoESP(90 + offsetX, 90 + offsetY, 0);
+                        powiedz("Przechodzę w stan uśpienia."); return;
                     }
                     statusTxt.innerText = "Myślę... " + tekst;
                     await zapytajGemini(tekst);
                 }
             };
-
-            rozpoznawanieMowy.onend = () => {
-                if (!czyMowi) { setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); }
-            };
-
+            rozpoznawanieMowy.onend = () => { if (!czyMowi) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); };
             rozpoznawanieMowy.start();
             statusTxt.innerText = "Nasłuchuję komendy: 'Gienek'";
         }
 
         async function zapytajGemini(pytanie) {
             try {
-                // Triumf inżynierii: prawidłowy silnik wzięty prosto ze skanera
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: "Jesteś Gienek, asystent mechanik z sarkastycznym humorem. Odpowiadaj maksymalnie w 2 zdaniach. Pytanie: " + pytanie }] }]
-                    })
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: "Jesteś Gienek, mechanik z sarkastycznym humorem. Odpowiadaj krótko w max 2 zdaniach. Pytanie: " + pytanie }] }] })
                 });
-                
                 const data = await response.json();
-                
-                if (data.error) {
-                    statusTxt.innerText = "Błąd AI: " + data.error.message;
-                    return;
-                }
-                
+                if (data.error) { statusTxt.innerText = "Błąd AI: " + data.error.message; return; }
                 let odpowiedz = data.candidates[0].content.parts[0].text;
-                statusTxt.innerText = odpowiedz;
-                powiedz(odpowiedz);
-            } catch (e) {
-                statusTxt.innerText = "Błąd skryptu: " + e.message;
-            }
+                statusTxt.innerText = odpowiedz; powiedz(odpowiedz);
+            } catch (e) { statusTxt.innerText = "Błąd: " + e.message; }
         }
 
         function powiedz(tekst) {
             if (rozpoznawanieMowy) { try { rozpoznawanieMowy.abort(); } catch(e){} }
             const utterance = new SpeechSynthesisUtterance(tekst);
-            utterance.lang = 'pl-PL';
-            utterance.pitch = 0.7; 
-            utterance.rate = 1.05;
-
+            utterance.lang = 'pl-PL'; utterance.pitch = 0.7; utterance.rate = 1.05;
             czyMowi = true;
             let interwalKlapania = setInterval(() => { usta.classList.toggle('mowi'); }, 130);
-
             utterance.onend = () => {
-                clearInterval(interwalKlapania);
-                usta.classList.remove('mowi');
-                czyMowi = false;
+                clearInterval(interwalKlapania); usta.classList.remove('mowi'); czyMowi = false;
                 setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 400);
             };
-
             window.speechSynthesis.speak(utterance);
         }
     </script>
