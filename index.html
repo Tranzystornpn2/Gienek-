@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 20.0 (Ostateczna)</title>
+    <title>Gienek 21.0 (Animatronika)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -11,45 +11,39 @@
 
     <style>
         body { background: #050505; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; overflow: hidden; }
-        
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
-        
-        /* HACK NA SAFARI: Kamera istnieje, ale jest całkowicie niewidoczna i nie przeszkadza */
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
-        /* USTA GIENKA (Główny element) */
         .usta { width: 60%; max-width: 300px; height: 25px; background-color: #00ffcc; border-radius: 40px; transition: height 0.1s; margin-bottom: 30px; box-shadow: 0 0 20px rgba(0,255,204,0.3); }
         .mowi { height: 100px; border-radius: 20px; box-shadow: 0 0 40px rgba(0,255,204,0.6); }
         .spi { height: 4px; background: #333; box-shadow: none; }
         
-        #debug { font-size: 14px; color: #666; text-align: center; position: absolute; bottom: 20px; width: 90%; }
+        #debug { font-size: 16px; color: #888; text-align: center; position: absolute; bottom: 30px; width: 90%; }
         .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px;}
         
-        /* TRYMER KALIBRACJI */
         #ustawieniaBtn { position: absolute; top: 20px; right: 20px; font-size: 35px; background: none; border: none; cursor: pointer; display: none; z-index: 50; }
         #panelTrymera { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(20,20,20,0.95); padding: 25px; border-radius: 15px; text-align: center; border: 2px solid #00ffcc; z-index: 200; width: 80%; max-width: 350px;}
         .strzalki { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 20px 0; justify-content: center; }
         .btnKierunek { padding: 15px; font-size: 24px; background: #333; color: white; border: none; border-radius: 10px; cursor: pointer;}
-        .btnKierunek:active { background: #555; }
         #zapiszBtn { padding: 15px 20px; font-size: 16px; background: #00ffcc; color: black; border: none; border-radius: 8px; width: 100%; font-weight: bold; cursor: pointer;}
     </style>
 </head>
 <body>
 
     <button id="ustawieniaBtn" onclick="pokazTrymer()">⚙️</button>
-    <button id="startBtn" onclick="uruchomiOS()">SYSTEM START</button>
+    <button id="startBtn" onclick="uruchomiOS()">ZBUDŹ MASZYNĘ</button>
     
     <div class="usta spi" id="ustaGienka"></div>
     <video id="webcam" autoplay playsinline muted></video>
     
     <div id="debug">
-        <span id="stanSystemu">Gienek OS gotowy.</span>
-        <span id="mqttStatus" class="mqtt-status">MQTT: OFF</span>
+        <span id="stanSystemu" style="color: #00ffcc;">System Gienek OS oczekuje...</span>
+        <span id="mqttStatus" class="mqtt-status">Sieć Neuralna: OFF</span>
     </div>
 
     <!-- UI KALIBRACJI -->
     <div id="panelTrymera">
-        <h3 style="margin-top:0; color:#00ffcc;">Kalibracja Oczu</h3>
+        <h3 style="margin-top:0; color:#00ffcc;">Kalibracja Środka</h3>
         <div class="strzalki">
             <div></div><button class="btnKierunek" onclick="trymuj(0, -5)">⬆️</button><div></div>
             <button class="btnKierunek" onclick="trymuj(5, 0)">⬅️</button>
@@ -57,8 +51,8 @@
             <button class="btnKierunek" onclick="trymuj(-5, 0)">➡️</button>
             <div></div><button class="btnKierunek" onclick="trymuj(0, 5)">⬇️</button><div></div>
         </div>
-        <p>Offset X: <span id="txtOffX" style="color:white; font-weight:bold;">0</span> | Offset Y: <span id="txtOffY" style="color:white; font-weight:bold;">0</span></p>
-        <button id="zapiszBtn" onclick="zapiszTrymer()">ZAPISZ I ZAMKNIJ</button>
+        <p>X: <span id="txtOffX" style="color:white; font-weight:bold;">0</span> | Y: <span id="txtOffY" style="color:white; font-weight:bold;">0</span></p>
+        <button id="zapiszBtn" onclick="zapiszTrymer()">ZAPISZ</button>
     </div>
 
     <script>
@@ -74,28 +68,30 @@
         let mostRadiowy = null; let gotowyDoWysylania = false; let ostWysylka = 0;
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
         
-        // Pamięć kalibracji
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
 
-        function pokazTrymer() {
-            document.getElementById('panelTrymera').style.display = 'block';
-            document.getElementById('txtOffX').innerText = offsetX;
-            document.getElementById('txtOffY').innerText = offsetY;
-        }
+        // ZMIENNE ANIMATRONIKI
+        let glatkiX = 90; let glatkiY = 90;
+        let ostatniX = 90; let ostatniY = 90;
+        let celBladzeniaX = 90; let celBladzeniaY = 90;
+        let czasZmianyBladzenia = 0;
+        let czasOstatniejTwarzy = Date.now();
+        let mruga = false;
 
-        function trymuj(dx, dy) {
-            if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; }
-            else { offsetX += dx; offsetY += dy; }
-            document.getElementById('txtOffX').innerText = offsetX; 
-            document.getElementById('txtOffY').innerText = offsetY;
+        // Generator mrugania (Działa stale w tle)
+        function cyklMrugania() {
+            if (trybAktywny) {
+                mruga = true;
+                setTimeout(() => { mruga = false; }, 150); // Błysk powiek 150ms
+            }
+            setTimeout(cyklMrugania, Math.random() * 4000 + 2000); // Następne mrugnięcie za 2 do 6 sekund
         }
+        setTimeout(cyklMrugania, 2000);
 
-        function zapiszTrymer() {
-            localStorage.setItem('gienekOffsetX', offsetX); 
-            localStorage.setItem('gienekOffsetY', offsetY);
-            document.getElementById('panelTrymera').style.display = 'none';
-        }
+        function pokazTrymer() { document.getElementById('panelTrymera').style.display = 'block'; document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY; }
+        function trymuj(dx, dy) { if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; } else { offsetX += dx; offsetY += dy; } document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY; }
+        function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
 
         async function uruchomiOS() {
             document.getElementById('startBtn').style.display = 'none';
@@ -103,12 +99,10 @@
             
             const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
+            mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#00ffcc"; });
             
-            mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "MQTT: ONLINE"; mqttStatus.style.color = "#00ffcc"; });
-            mostRadiowy.on('error', (err) => { mqttStatus.innerText = "MQTT ERROR"; mqttStatus.style.color = "#ff4444"; });
-
             window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
-            stanSystemuTxt.innerText = "Trwa ładowanie obwodów...";
+            stanSystemuTxt.innerText = "Trwa start generatorów...";
 
             setTimeout(() => { uruchomWzrok(); uruchomSluch(); }, 500);
         }
@@ -118,40 +112,75 @@
             faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
 
             faceDetection.onResults((results) => {
-                // Wysyłamy sygnał tylko gdy nie kalibrujemy układu, żeby widzieć zmiany na bieżąco
+                let teraz = Date.now();
+                let docelowyX = 90 + offsetX;
+                let docelowyY = 90 + offsetY;
+                let widziKogos = false;
+
                 if (results.detections && results.detections.length > 0) {
                     try {
                         const box = results.detections[0].boundingBox; 
                         let cx = (box.xCenter !== undefined) ? box.xCenter : ((box.xMin || box.xmin || 0) + (box.width / 2));
                         let cy = (box.yCenter !== undefined) ? box.yCenter : ((box.yMin || box.ymin || 0) + (box.height / 2));
                         
-                        // ZASTOSOWANIE OFFSETÓW KALIBRACJI Z REWERSEM OSI Y
-                        let x = Math.max(0, Math.min(180, Math.round(160 - (cx * 140)) + offsetX));
-                        let y = Math.max(0, Math.min(180, Math.round(160 - (cy * 140)) + offsetY));
+                        docelowyX = Math.max(0, Math.min(180, Math.round(160 - (cx * 140)) + offsetX));
+                        docelowyY = Math.max(0, Math.min(180, Math.round(160 - (cy * 140)) + offsetY));
                         
-                        wyslijDoESP(x, y, 1);
+                        ostatniX = docelowyX; ostatniY = docelowyY;
+                        czasOstatniejTwarzy = teraz;
+                        widziKogos = true;
                     } catch(e) {}
-                } else {
-                    wyslijDoESP(90 + offsetX, 90 + offsetY, 0);
                 }
+
+                // UKŁAD ZAPOBIEGAJĄCY PANICE (Anti-Jitter)
+                if (!widziKogos) {
+                    if (teraz - czasOstatniejTwarzy < 2000) {
+                        // Zamrożenie na 2 sekundy w ostatnim punkcie skupienia
+                        docelowyX = ostatniX; docelowyY = ostatniY;
+                    } 
+                    // Jeśli upłynęło więcej niż 2s, cel to znów centrum (90), wygładzanie sprowadzi go tam powoli
+                }
+
+                // TRYB MYŚLICIELA - Błądzenie wzrokiem podczas mówienia
+                if (czyMowi) {
+                    if (teraz - czasZmianyBladzenia > (Math.random() * 800 + 700)) {
+                        celBladzeniaX = (widziKogos ? ostatniX : (90 + offsetX)) + (Math.random() * 40 - 20);
+                        celBladzeniaY = (widziKogos ? ostatniY : (90 + offsetY)) + (Math.random() * 30 - 15);
+                        czasZmianyBladzenia = teraz;
+                    }
+                    docelowyX = celBladzeniaX; docelowyY = celBladzeniaY;
+                }
+
+                // FILTR DOLNOPRZEPUSTOWY - Płynna mechanika ruchu bez szarpania
+                glatkiX = glatkiX + (docelowyX - glatkiX) * 0.15;
+                glatkiY = glatkiY + (docelowyY - glatkiY) * 0.15;
+
+                let finalX = Math.round(glatkiX);
+                let finalY = Math.round(glatkiY);
+
+                // STAN POWIEK
+                let w = 1;
+                if (!trybAktywny) w = 0;
+                else if (mruga) w = 0;
+
+                wyslijDoESP(finalX, finalY, w);
             });
 
             const camera = new Camera(videoElement, {
-                onFrame: async () => { try { await faceDetection.send({image: videoElement}); } catch(e) {} },
-                width: 320, height: 240
+                onFrame: async () => { try { await faceDetection.send({image: videoElement}); } catch(e) {} }, width: 320, height: 240
             });
             camera.start();
         }
 
         function wyslijDoESP(x, y, widzi) {
-            if (!gotowyDoWysylania || Date.now() - ostWysylka < 100) return;
+            if (!gotowyDoWysylania || Date.now() - ostWysylka < 50) return; // Przyspieszony interwał dla płynności
             ostWysylka = Date.now();
             mostRadiowy.publish("warsztat_gienek_12345/oczy", `${x},${y},${widzi}`);
         }
 
         function uruchomSluch() {
             window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Brak wsparcia mikrofonu!"; return; }
+            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Mikrofon odrzucony."; return; }
 
             rozpoznawanieMowy = new SpeechRecognition();
             rozpoznawanieMowy.lang = 'pl-PL'; rozpoznawanieMowy.continuous = true; rozpoznawanieMowy.interimResults = false;
@@ -161,7 +190,7 @@
                 
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
-                        trybAktywny = true; usta.classList.remove('spi'); powiedz("Słucham?");
+                        trybAktywny = true; usta.classList.remove('spi'); powiedz("Słucham szefie?");
                     }
                 } else {
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
@@ -172,22 +201,22 @@
             };
             rozpoznawanieMowy.onend = () => { if (!czyMowi) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); };
             
-            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Gienek śpi (powiedz 'Gienek' by wybudzić)"; } 
-            catch(e) { stanSystemuTxt.innerText = "Błąd mikrofonu."; }
+            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Gienek śpi. Powiedz 'Gienek' by go obudzić."; } 
+            catch(e) { stanSystemuTxt.innerText = "Awaria mikrofonu."; }
         }
 
         async function zapytajGemini(pytanie) {
-            stanSystemuTxt.innerText = "Myślę...";
+            stanSystemuTxt.innerText = "Przetwarzanie...";
             try {
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: "Jesteś mechanikiem i elektronikiem o imieniu Gienek. Jesteś w warsztacie samochodowym i elektronicznym na Śląsku. Odpowiadaj bardzo krótko, max 2-3 zdania. Pytanie: " + pytanie }] }] })
+                    body: JSON.stringify({ contents: [{ parts: [{ text: "Jesteś Gienek, śląski mechanik i elektronik. Siedzisz w warsztacie w Goczałkowicach. Twój szef złożył Cię z drukarki 3D i mikrokontrolerów. Odpowiadaj maksymalnie w 2-3 zdaniach, z lekkim technicznym humorem. Pytanie: " + pytanie }] }] })
                 });
                 const data = await response.json();
                 if(data.candidates && data.candidates[0].content.parts[0].text) {
                     powiedz(data.candidates[0].content.parts[0].text);
                 }
-            } catch (e) { stanSystemuTxt.innerText = "Błąd AI."; }
+            } catch (e) { stanSystemuTxt.innerText = "Brak połączenia z chmurą myślową."; }
         }
 
         function powiedz(tekst) {
@@ -195,12 +224,12 @@
             const utterance = new SpeechSynthesisUtterance(tekst);
             utterance.lang = 'pl-PL'; utterance.pitch = 0.7; utterance.rate = 1.0; 
             
-            czyMowi = true; stanSystemuTxt.innerText = "Gienek mówi...";
+            czyMowi = true; stanSystemuTxt.innerText = "Gienek odpowiada...";
             let interwalKlapania = setInterval(() => { usta.classList.toggle('mowi'); }, 150);
             
             utterance.onend = () => {
                 clearInterval(interwalKlapania); usta.classList.remove('mowi'); czyMowi = false;
-                stanSystemuTxt.innerText = "Nasłuchuję...";
+                stanSystemuTxt.innerText = "Nasłuchiwanie otoczenia...";
                 setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 400);
             };
             window.speechSynthesis.speak(utterance);
