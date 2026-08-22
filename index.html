@@ -3,27 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 18.0 (MQTT Most Radiowy)</title>
+    <title>Gienek 18.1 (EMQX Most)</title>
     
-    <!-- Biblioteki obrazu -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
-    <!-- Biblioteka Mostu Radiowego MQTT -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
     <style>
         body { background: #111; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; }
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
-        #debug { font-size: 16px; color: #00ffcc; text-align: center; margin-top: 15px; padding: 15px; border: 2px solid #00ffcc; border-radius: 12px; background: rgba(0,255,204,0.1); width: 85%; }
+        #debug { font-size: 15px; color: #00ffcc; text-align: center; margin-top: 15px; padding: 15px; border: 2px solid #00ffcc; border-radius: 12px; background: rgba(0,255,204,0.1); width: 85%; word-wrap: break-word;}
         video { display: block; width: 280px; height: 210px; margin-top: 10px; border-radius: 12px; border: 2px solid #555; transform: scaleX(-1); object-fit: cover; }
-        .mqtt-status { color: #ff9800; font-weight: bold; }
+        .mqtt-status { font-weight: bold; font-size: 18px; display: block; margin-top: 10px;}
     </style>
 </head>
 <body>
 
     <button id="startBtn" onclick="uruchomiOS()">SYSTEM START</button>
     <video id="webcam" autoplay playsinline muted></video>
-    <div id="debug">Status: Gotowy do uruchomienia...<br><span id="mqttStatus" class="mqtt-status">MQTT: Rozłączony</span></div>
+    <div id="debug">
+        Status: Gotowy...<br>
+        <span id="mqttStatus" class="mqtt-status" style="color: #ff9800;">MQTT: ROZŁĄCZONY</span>
+    </div>
 
     <script>
         const debugTxt = document.getElementById('debug');
@@ -36,21 +37,41 @@
 
         async function uruchomiOS() {
             document.getElementById('startBtn').style.display = 'none';
-            debugTxt.innerHTML = "Uruchamiam systemy...";
+            mqttStatus.innerText = "MQTT: ŁĄCZENIE Z EMQX...";
             
-            // 1. Łączenie z mostem radiowym (MQTT przez bezpieczne WebSockets)
-            mostRadiowy = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+            // Generujemy unikalny numer dla Twojego iPhone'a
+            const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             
-            mostRadiowy.on('connect', function () {
-                gotowyDoWysylania = true;
-                mqttStatus.innerText = "MQTT: POŁĄCZONO Z SERWEREM!";
-                mqttStatus.style.color = "#00ff00";
-            });
+            const opcjeMQTT = {
+                clientId: unikalnyID,
+                keepalive: 60,
+                clean: true,
+                reconnectPeriod: 1000,
+                connectTimeout: 5000
+            };
 
-            mostRadiowy.on('error', function (err) {
-                mqttStatus.innerText = "MQTT BŁĄD: " + err;
-                mqttStatus.style.color = "#ff0000";
-            });
+            // Łączymy się z serwerem EMQX
+            try {
+                mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', opcjeMQTT);
+                
+                mostRadiowy.on('connect', function () {
+                    gotowyDoWysylania = true;
+                    mqttStatus.innerText = "MQTT: POŁĄCZONO! (" + unikalnyID + ")";
+                    mqttStatus.style.color = "#00ff00";
+                });
+
+                mostRadiowy.on('error', function (err) {
+                    mqttStatus.innerText = "MQTT BŁĄD: " + err.message;
+                    mqttStatus.style.color = "#ff4444";
+                });
+                
+                mostRadiowy.on('offline', function () {
+                    mqttStatus.innerText = "MQTT: SERWER ODRZUCIŁ";
+                    mqttStatus.style.color = "#ff4444";
+                });
+            } catch (error) {
+                mqttStatus.innerText = "BŁĄD KRYTYCZNY JS: " + error.message;
+            }
 
             videoElement.play().catch(e => {});
             uruchomWzrok();
@@ -64,6 +85,7 @@
             faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.5 });
 
             faceDetection.onResults((results) => {
+                let statusKamera = "";
                 if (results.detections && results.detections.length > 0) {
                     const box = results.detections[0].bounding_box;
                     const cx = box.xmin + box.width / 2;
@@ -73,11 +95,14 @@
                     let y = Math.max(0, Math.min(180, Math.round(20 + (cy * 140))));
                     
                     wyslijDoESP(x, y, 1);
-                    debugTxt.innerHTML = `<b>WIDZĘ TWARZ!</b><br>Kąty: X=${x}°, Y=${y}°<br>Wysłane pakiety: ${licznikWysylania}<br><span class="mqtt-status" style="color:#00ff00;">MQTT: NADAJĘ W ETER...</span>`;
+                    statusKamera = `<b>WIDZĘ TWARZ!</b><br>X=${x}°, Y=${y}°<br>Pakiety: ${licznikWysylania}`;
                 } else {
                     wyslijDoESP(90, 90, 0);
-                    debugTxt.innerHTML = `<b>SZUKAM TWARZY...</b><br>Wysłane pakiety: ${licznikWysylania}<br><span class="mqtt-status" style="color:#00ff00;">MQTT: NADAJĘ W ETER...</span>`;
+                    statusKamera = `<b>SZUKAM TWARZY...</b><br>Pakiety: ${licznikWysylania}`;
                 }
+                
+                // Aktualizujemy główny tekst, omijając nadpisywanie statusu MQTT
+                debugTxt.innerHTML = statusKamera + '<br><span id="mqttStatus" class="mqtt-status" style="color:' + mqttStatus.style.color + ';">' + mqttStatus.innerText + '</span>';
             });
 
             const camera = new Camera(videoElement, {
@@ -89,15 +114,11 @@
 
         let ostWysylka = 0;
         function wyslijDoESP(x, y, widzi) {
-            // Wysyłamy sygnał max co 100ms
             if (!gotowyDoWysylania || Date.now() - ostWysylka < 100) return;
             ostWysylka = Date.now();
             licznikWysylania++;
             
-            // Format sygnału: X,Y,W
             let sygnal = `${x},${y},${widzi}`;
-            
-            // Nadajemy na nasz kanał radiowy!
             mostRadiowy.publish("warsztat_gienek_12345/oczy", sygnal);
         }
     </script>
