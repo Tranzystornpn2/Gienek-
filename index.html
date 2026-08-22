@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 22.4 (Fix Nagłówków API)</title>
+    <title>Gienek 23.0 (Auto-Diagnostyka AI)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -79,6 +79,8 @@
         let czasZmianyBladzenia = 0;
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
+        
+        let aktywowanyModel = "models/gemini-1.5-flash"; // Fallback na start
 
         function cyklMrugania() {
             if (trybAktywny) {
@@ -94,7 +96,7 @@
         function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
 
         function uruchomiOS() {
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); // Start audio
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
             stanSystemuTxt.innerText = "Start systemów...";
@@ -107,6 +109,43 @@
                 strumien.getTracks().forEach(t => t.stop());
             } catch(e) { }
 
+            // --- AUTO-DIAGNOSTYKA MODELU AI ---
+            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
+                stanSystemuTxt.innerText = "BŁĄD: ZAPOMNIAŁEŚ KLUCZA API!";
+                stanSystemuTxt.style.color = "#ff3b30";
+            } else {
+                stanSystemuTxt.innerText = "Skanowanie serwerów Google w poszukiwaniu modelu...";
+                try {
+                    const modelRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEY}`);
+                    if (modelRes.ok) {
+                        const modelData = await modelRes.json();
+                        let znaleziony = false;
+                        for (let m of modelData.models) {
+                            if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
+                                aktywowanyModel = m.name; // Zwraca poprawną nazwę, np. "models/gemini-pro"
+                                znaleziony = true;
+                                if (aktywowanyModel.includes("flash")) break; // Szukamy najszybszego 
+                            }
+                        }
+                        if (znaleziony) {
+                            stanSystemuTxt.innerText = "Podpięto model: " + aktywowanyModel.replace('models/','');
+                            stanSystemuTxt.style.color = "#00ffcc";
+                        } else {
+                            stanSystemuTxt.innerText = "BŁĄD: Brak obsługiwnych modeli dla tego klucza.";
+                            stanSystemuTxt.style.color = "#ff3b30";
+                        }
+                    } else {
+                        const err = await modelRes.json();
+                        stanSystemuTxt.innerText = "BŁĄD KLUCZA: " + (err.error?.message || "Odrzucono dostęp!");
+                        stanSystemuTxt.style.color = "#ff3b30";
+                    }
+                } catch(e) {
+                    stanSystemuTxt.innerText = "Błąd komunikacji autodiagnostyki z Google.";
+                    stanSystemuTxt.style.color = "#ff3b30";
+                }
+            }
+
+            // --- START RESZTY SYSTEMÓW ---
             const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
             mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#00ffcc"; });
@@ -206,24 +245,16 @@
         }
 
         async function zapytajGemini(pytanie) {
-            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
-                stanSystemuTxt.innerText = "BŁĄD: Zapomniałeś wkleić klucza API do kodu!";
-                stanSystemuTxt.style.color = "#ff3b30";
-                return;
-            }
-
             stanSystemuTxt.innerText = "Myślę...";
             stanSystemuTxt.style.color = "#00ffcc";
 
             try {
-                // Klucz jest teraz bezpiecznie wysyłany w nagłówku, z dala od adresu URL
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
+                // Wykorzystujemy DOKŁADNIE ten model, który zwrócił sam serwer w auto-diagnostyce!
+                const url = `https://generativelanguage.googleapis.com/v1beta/${aktywowanyModel}:generateContent?key=${GEMINI_KEY}`;
+                
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'x-goog-api-key': GEMINI_KEY 
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{
                             parts: [{
@@ -245,7 +276,7 @@
                     stanSystemuTxt.style.color = "#ff3b30";
                 }
             } catch (e) {
-                stanSystemuTxt.innerText = "Brak połączenia z chmurą.";
+                stanSystemuTxt.innerText = "Brak połączenia z chmurą AI.";
                 stanSystemuTxt.style.color = "#ff3b30";
             }
         }
