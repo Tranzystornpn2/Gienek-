@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 23.1 (Bramka Szumów)</title>
+    <title>Gienek 23.2 (Half-Duplex)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -57,7 +57,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg"
+        const SUROWY_KLUCZ = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg";
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -70,7 +70,7 @@
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
         let aktualnaWypowiedz = null; 
         
-        let przetwarzaZapytanie = false; // BLOKADA BRAMKI SZUMÓW I SPRZĘŻEŃ
+        let przetwarzanieWToku = false; // BLOKADA HALF-DUPLEX
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
@@ -227,29 +227,34 @@
             rozpoznawanieMowy.onresult = async (event) => {
                 let tekst = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 
+                // === HALF-DUPLEX BLOKADA ===
+                if (przetwarzanieWToku || czyMowi) return; 
+
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
                         trybAktywny = true; usta.classList.remove('spi'); powiedz("Słucham szefie?");
                     }
                 } else {
-                    // BLOKADA: Nie przetwarzaj, jeśli właśnie odpowiada lub łączy się z chmurą
-                    if (przetwarzaZapytanie || czyMowi) return; 
-
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
                         trybAktywny = false; usta.classList.add('spi'); powiedz("Dobranoc."); return;
                     }
 
-                    // BRAMKA SZUMÓW: Ignoruj bardzo krótkie hałasy
-                    if (tekst.length < 5) {
-                        stanSystemuTxt.innerText = "Zignorowano szum (" + tekst + ")";
-                        return;
-                    }
+                    if (tekst.length < 5) return; // Ignorowanie chrząknięć
                     
-                    przetwarzaZapytanie = true; // ZATRZASK BLOKADY
+                    przetwarzanieWToku = true;
+                    // FIZYCZNE ODCIĘCIE MIKROFONU NA CZAS MYŚLENIA I MÓWIENIA
+                    try { rozpoznawanieMowy.stop(); } catch(e){} 
+                    
                     await zapytajGemini(tekst);
                 }
             };
-            rozpoznawanieMowy.onend = () => { if (!czyMowi) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); };
+            
+            // Reaktywacja mikrofonu TYLKO jeśli nie mówimy i nie myślimy
+            rozpoznawanieMowy.onend = () => { 
+                if (!czyMowi && !przetwarzanieWToku) {
+                    setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); 
+                }
+            };
             
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wywołać."; } 
             catch(e) { stanSystemuTxt.innerText = "Sprawdź uprawnienia mikrofonu!"; }
@@ -280,24 +285,22 @@
                     if (odp) {
                         powiedz(odp);
                     } else {
-                        przetwarzaZapytanie = false; // Zwolnij blokadę jeśli błąd danych
+                        wznowNasluch(); // Brak odpowiedzi, wznów nasłuch
                     }
                 } else {
                     const err = await response.json();
                     stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
                     stanSystemuTxt.style.color = "#ff3b30";
-                    przetwarzaZapytanie = false; // Zwolnij blokadę przy błędzie serwera
+                    wznowNasluch(); // Błąd, wznów nasłuch
                 }
             } catch (e) {
                 stanSystemuTxt.innerText = "Brak połączenia z chmurą AI.";
                 stanSystemuTxt.style.color = "#ff3b30";
-                przetwarzaZapytanie = false; // Zwolnij blokadę przy braku neta
+                wznowNasluch(); // Brak neta, wznów nasłuch
             }
         }
 
         function powiedz(tekst) {
-            if (rozpoznawanieMowy) { try { rozpoznawanieMowy.abort(); } catch(e){} }
-            
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
             aktualnaWypowiedz.pitch = 0.7; 
@@ -308,11 +311,19 @@
             
             aktualnaWypowiedz.onend = () => {
                 clearInterval(interwalKlapania); usta.classList.remove('mowi'); czyMowi = false;
-                przetwarzaZapytanie = false; // ODBLOKOWANIE SZUMÓW PO SKOŃCZENIU MOWY
-                stanSystemuTxt.innerText = "Nasłuchiwanie otoczenia...";
-                setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 400);
+                wznowNasluch();
             };
+            
+            // Dla pewności upewniamy się, że mikrofon Safari jest ubity zanim Gienek się odezwie
+            try { rozpoznawanieMowy.stop(); } catch(e){} 
             window.speechSynthesis.speak(aktualnaWypowiedz);
+        }
+
+        // Funkcja pomocnicza wznawiająca nasłuch po zakończeniu przetwarzania
+        function wznowNasluch() {
+            przetwarzanieWToku = false;
+            stanSystemuTxt.innerText = "Nasłuchiwanie otoczenia...";
+            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500); // Pół sekundy opóźnienia, żeby echo ucichło
         }
     </script>
 </body>
