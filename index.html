@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 26.0 (Emocje i Animatronika)</title>
+    <title>Gienek 26.1 (Optymalizacja CPU)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -14,15 +14,7 @@
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
-        /* BAZA UST - PŁYNNE PRZEJŚCIA */
-        .usta { 
-            background-color: #ff3366; 
-            margin-bottom: 30px;
-            /* Połączenie animacji zmiany emocji i pulsowania podczas mowy */
-            transition: border-radius 0.4s ease-out, width 0.4s ease-out, height 0.4s ease-out, background-color 0.4s, transform 0.15s ease-in-out; 
-        }
-        
-        /* KLASY EMOCJI (ZMIANA KSZTAŁTU) */
+        .usta { background-color: #ff3366; margin-bottom: 30px; transition: border-radius 0.4s ease-out, width 0.4s ease-out, height 0.4s ease-out, background-color 0.4s, transform 0.15s ease-in-out; }
         .emocja-neutralny { width: 100px; height: 40px; border-radius: 40px; box-shadow: 0 0 30px rgba(255,51,102,0.5); }
         .emocja-radosc { width: 70%; max-width: 250px; height: 90px; border-radius: 20px 20px 100px 100px; background-color: #ff2a5f; box-shadow: 0 0 50px rgba(255,42,95,0.8); }
         .emocja-zaskoczenie { width: 80px; height: 80px; border-radius: 50%; box-shadow: 0 0 40px rgba(255,51,102,0.7); }
@@ -44,7 +36,6 @@
     <button id="ustawieniaBtn" onclick="pokazTrymer()">⚙️</button>
     <button id="startBtn" onclick="uruchomiOS()">OBUDŹ GIENKA</button>
     
-    <!-- Domyślnie Gienek śpi -->
     <div class="usta spi" id="ustaGienka"></div>
     <video id="webcam" autoplay playsinline muted></video>
     
@@ -68,7 +59,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ ="AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA";
+        const SUROWY_KLUCZ ="AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA"
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -85,7 +76,6 @@
         let bezpiecznikTTS = null; 
         let czasOstatniejAktywnosci = Date.now(); 
         
-        // NOWA ZMIENNA DLA ESP (KOD EMOCJI: 0=Sen, 1=Neutral, 2=Radosc, 3=Zaskoczenie, 4=Smutek)
         let stanEmocji = 0; 
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
@@ -98,6 +88,9 @@
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
         
+        // --- LIMITER OBROTÓW DLA KAMERY ---
+        let czasOstatniejKlatki = 0; 
+
         const dostepneModele = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
 
         function cyklMrugania() {
@@ -115,7 +108,6 @@
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
             stanSystemuTxt.innerText = "Start systemów...";
-            
             uruchomSluch(); 
             setTimeout(uruchomReszte, 100);
         }
@@ -178,12 +170,9 @@
                     docelowyX = celBladzeniaX; docelowyY = celBladzeniaY;
                 }
 
-                // USYPIANIE
                 if (trybAktywny && !czyMowi && !przetwarzanieWToku) {
                     if (teraz - czasOstatniejAktywnosci > 35000) { 
-                        trybAktywny = false;
-                        stanEmocji = 0; // KOD 0 = SEN
-                        usta.className = 'usta spi';
+                        trybAktywny = false; stanEmocji = 0; usta.className = 'usta spi';
                         stanSystemuTxt.innerText = "Brak aktywności. Idę spać...";
                         powiedz("Chyba sobie poszliście! Zrobię sobie drzemkę, pa pa!");
                     }
@@ -200,7 +189,15 @@
             });
 
             const camera = new Camera(videoElement, {
-                onFrame: async () => { try { await faceDetection.send({image: videoElement}); } catch(e) {} }, width: 320, height: 240
+                onFrame: async () => { 
+                    let teraz = Date.now();
+                    // ZAWÓR DŁAWIĄCY (THROTTLE): Analiza twarzy MAX 6-7 razy na sekundę (co 150ms)
+                    if (teraz - czasOstatniejKlatki > 150) {
+                        czasOstatniejKlatki = teraz;
+                        try { await faceDetection.send({image: videoElement}); } catch(e) {}
+                    }
+                }, 
+                width: 320, height: 240
             });
             camera.start();
         }
@@ -208,15 +205,13 @@
         function wyslijDoESP(x, y, widzi, emocja) {
             if (!gotowyDoWysylania || Date.now() - ostWysylka < 50) return; 
             ostWysylka = Date.now();
-            // NOWY PROTOKÓŁ WYSYŁAJĄCY 4 ZMIENNE DO PŁYTKI!
             mostRadiowy.publish("warsztat_gienek_12345/oczy", `${x},${y},${widzi},${emocja}`);
         }
 
         function zrobZdjecieDlaAI() {
             try {
                 const canvas = document.createElement('canvas');
-                canvas.width = 320;
-                canvas.height = 240;
+                canvas.width = 320; canvas.height = 240;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
                 return canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
@@ -232,26 +227,20 @@
 
             rozpoznawanieMowy.onresult = async (event) => {
                 let tekst = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-                
                 czasOstatniejAktywnosci = Date.now(); 
                 
                 if (przetwarzanieWToku || czyMowi) return; 
 
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
-                        trybAktywny = true; 
-                        stanEmocji = 1; // 1 = Neutralne wybudzenie
-                        usta.className = 'usta emocja-neutralny'; 
+                        trybAktywny = true; stanEmocji = 1; usta.className = 'usta emocja-neutralny'; 
                         powiedz("Hej! Słucham was uważnie!");
                     }
                 } else {
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się") || tekst.includes("dobranoc")) {
-                        trybAktywny = false; 
-                        stanEmocji = 0; // 0 = Zamykamy obwody powiek natychmiast
-                        usta.className = 'usta spi'; 
+                        trybAktywny = false; stanEmocji = 0; usta.className = 'usta spi'; 
                         wyslijDoESP(90, 90, 0, 0); 
-                        powiedz("Dobranoc Klementynko, kolorowych snów!"); 
-                        return;
+                        powiedz("Dobranoc Klementynko, kolorowych snów!"); return;
                     }
 
                     if (tekst.length < 3) return; 
@@ -265,8 +254,6 @@
             
             rozpoznawanieMowy.onerror = (event) => {
                 let errMSG = event.error;
-                if(errMSG === 'not-allowed') errMSG = "Odblokuj ROZPOZNAWANIE MOWY w Safari!";
-                if(errMSG === 'network') errMSG = "Włącz DYKTOWANIE w klawiaturze!";
                 stanSystemuTxt.innerText = "Błąd słuchu: " + errMSG;
                 if(event.error === 'no-speech' || event.error === 'network') {
                     if(!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500);
@@ -277,27 +264,19 @@
                 if (!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 200); 
             };
             
-            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } 
-            catch(e) {}
+            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } catch(e) {}
         }
 
         async function zapytajGemini(pytanie) {
             stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
             
-            // NOWY POTĘŻNY PROMPT - WYMUSZA ZWROT KODU EMOCJI
             const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, niesamowicie kreatywny robot przyjaciel dla 3,5-letniej Klementynki. WIDZISZ obraz z kamery. 
-ZASADY: 
-1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 
-2. Jeśli poprosi o BAJKĘ, opowiedz długą, piękną historię! 
-3. WYMÓG ABSOLUTNY: Na samym końcu swojej wypowiedzi MUSISZ dopisać w nawiasach kwadratowych jedną emocję, np: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY]. Dopasuj ją do tego co mówisz!
-Pytanie Klementynki: ${pytanie}`;
+ZASADY: 1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 2. Jeśli poprosi o BAJKĘ, opowiedz długą, piękną historię! 3. WYMÓG ABSOLUTNY: Na samym końcu swojej wypowiedzi MUSISZ dopisać w nawiasach kwadratowych jedną emocję, np: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY]. Pytanie Klementynki: ${pytanie}`;
 
             let czesciWiadomosci = [{ text: PROMPT_DLA_DZIECKA }];
             let zdjecieB64 = zrobZdjecieDlaAI();
             
-            if (zdjecieB64) {
-                czesciWiadomosci.push({ inlineData: { mimeType: "image/jpeg", data: zdjecieB64 } });
-            }
+            if (zdjecieB64) czesciWiadomosci.push({ inlineData: { mimeType: "image/jpeg", data: zdjecieB64 } });
 
             let udaloSie = false;
 
@@ -313,25 +292,19 @@ Pytanie Klementynki: ${pytanie}`;
                         const data = await response.json();
                         let odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (odp) { 
-                            // PARSOWANIE EMOCJI Z TEKSTU
                             let wykrEmocja = odp.match(/\[(RADOSC|ZASKOCZENIE|SMUTEK|NEUTRALNY)\]/i);
-                            let klasaUsty = 'emocja-neutralny';
-                            stanEmocji = 1; // Domyślnie Neutral
+                            let klasaUsty = 'emocja-neutralny'; stanEmocji = 1;
 
                             if (wykrEmocja) {
                                 let em = wykrEmocja[1].toUpperCase();
                                 if (em === 'RADOSC') { klasaUsty = 'emocja-radosc'; stanEmocji = 2; }
                                 else if (em === 'ZASKOCZENIE') { klasaUsty = 'emocja-zaskoczenie'; stanEmocji = 3; }
                                 else if (em === 'SMUTEK') { klasaUsty = 'emocja-smutek'; stanEmocji = 4; }
-                                else if (em === 'NEUTRALNY') { klasaUsty = 'emocja-neutralny'; stanEmocji = 1; }
                             }
                             
-                            // Wycięcie [EMOCJI] z tekstu, żeby Gienek jej nie przeczytał na głos!
                             let czystyTekst = odp.replace(/\[.*?\]/g, '').trim();
-                            
                             powiedz(czystyTekst, klasaUsty); 
-                            udaloSie = true; 
-                            break; 
+                            udaloSie = true; break; 
                         }
                     } else {
                         if (response.status === 503 || response.status === 429 || response.status === 404) continue; 
@@ -346,14 +319,9 @@ Pytanie Klementynki: ${pytanie}`;
         let interwalKlapania;
         function powiedz(tekst, klasaUsty = 'emocja-neutralny') {
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
-            aktualnaWypowiedz.lang = 'pl-PL'; 
-            aktualnaWypowiedz.pitch = 1.1; 
-            aktualnaWypowiedz.rate = 0.95;  
+            aktualnaWypowiedz.lang = 'pl-PL'; aktualnaWypowiedz.pitch = 1.1; aktualnaWypowiedz.rate = 0.95;  
             
-            czyMowi = true; 
-            stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
-            
-            // Ustawiamy usta na konkretną emocję (np. wielki uśmiech)
+            czyMowi = true; stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
             usta.className = `usta ${klasaUsty}`;
             
             let przewidywanyCzas = 15000 + (tekst.length * 130);
@@ -363,7 +331,6 @@ Pytanie Klementynki: ${pytanie}`;
             clearInterval(interwalKlapania);
             let rosnace = true;
             
-            // Płynna animacja "kłapania" utrzymująca Kształt Emocji (Skalowanie)
             interwalKlapania = setInterval(() => { 
                 rosnace = !rosnace;
                 usta.style.transform = rosnace ? 'scaleY(1.2) scaleX(1.05)' : 'scaleY(0.8) scaleX(0.95)'; 
@@ -377,21 +344,13 @@ Pytanie Klementynki: ${pytanie}`;
         }
 
         function wymusKoniecMowy() {
-            clearTimeout(bezpiecznikTTS);
-            clearInterval(interwalKlapania); 
+            clearTimeout(bezpiecznikTTS); clearInterval(interwalKlapania); 
+            usta.style.transform = 'scale(1)';
             
-            usta.style.transform = 'scale(1)'; // Reset skalowania
+            if (trybAktywny) { stanEmocji = 1; usta.className = 'usta emocja-neutralny'; } 
+            else { stanEmocji = 0; usta.className = 'usta spi'; }
             
-            if (trybAktywny) {
-                stanEmocji = 1; // Wraca do neutralnego
-                usta.className = 'usta emocja-neutralny'; 
-            } else {
-                stanEmocji = 0; // Sen
-                usta.className = 'usta spi';
-            }
-            
-            czyMowi = false;
-            czasOstatniejAktywnosci = Date.now(); 
+            czyMowi = false; czasOstatniejAktywnosci = Date.now(); 
             wznowNasluch();
         }
 
