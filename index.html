@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 25.0 (Wzrok i Bajki)</title>
+    <title>Gienek 26.0 (Emocje i Animatronika)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -14,10 +14,20 @@
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
-        .usta { background-color: #ff3366; border-radius: 40px; transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); margin-bottom: 30px; }
-        .mowi { width: 70%; max-width: 280px; height: 90px; border-radius: 20px 20px 100px 100px; box-shadow: 0 0 50px rgba(255,51,102,0.8); }
-        .slucha { width: 70px; height: 70px; border-radius: 50%; box-shadow: 0 0 35px rgba(255,51,102,0.6); }
-        .spi { width: 30%; max-width: 150px; height: 8px; background: #444; box-shadow: none; }
+        /* BAZA UST - PŁYNNE PRZEJŚCIA */
+        .usta { 
+            background-color: #ff3366; 
+            margin-bottom: 30px;
+            /* Połączenie animacji zmiany emocji i pulsowania podczas mowy */
+            transition: border-radius 0.4s ease-out, width 0.4s ease-out, height 0.4s ease-out, background-color 0.4s, transform 0.15s ease-in-out; 
+        }
+        
+        /* KLASY EMOCJI (ZMIANA KSZTAŁTU) */
+        .emocja-neutralny { width: 100px; height: 40px; border-radius: 40px; box-shadow: 0 0 30px rgba(255,51,102,0.5); }
+        .emocja-radosc { width: 70%; max-width: 250px; height: 90px; border-radius: 20px 20px 100px 100px; background-color: #ff2a5f; box-shadow: 0 0 50px rgba(255,42,95,0.8); }
+        .emocja-zaskoczenie { width: 80px; height: 80px; border-radius: 50%; box-shadow: 0 0 40px rgba(255,51,102,0.7); }
+        .emocja-smutek { width: 60%; max-width: 200px; height: 45px; border-radius: 100px 100px 20px 20px; background-color: #8833ff; box-shadow: 0 0 30px rgba(136,51,255,0.6); }
+        .spi { width: 30%; max-width: 150px; height: 8px; border-radius: 10px; background: #444; box-shadow: none; transform: scale(1) !important; }
         
         #debug { font-size: 15px; color: #888; text-align: center; position: absolute; bottom: 25px; width: 90%; word-break: break-word; }
         .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px;}
@@ -34,6 +44,7 @@
     <button id="ustawieniaBtn" onclick="pokazTrymer()">⚙️</button>
     <button id="startBtn" onclick="uruchomiOS()">OBUDŹ GIENKA</button>
     
+    <!-- Domyślnie Gienek śpi -->
     <div class="usta spi" id="ustaGienka"></div>
     <video id="webcam" autoplay playsinline muted></video>
     
@@ -57,7 +68,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ = "AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA";
+        const SUROWY_KLUCZ ="AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA";
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -74,6 +85,9 @@
         let bezpiecznikTTS = null; 
         let czasOstatniejAktywnosci = Date.now(); 
         
+        // NOWA ZMIENNA DLA ESP (KOD EMOCJI: 0=Sen, 1=Neutral, 2=Radosc, 3=Zaskoczenie, 4=Smutek)
+        let stanEmocji = 0; 
+        
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
 
@@ -87,7 +101,7 @@
         const dostepneModele = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
 
         function cyklMrugania() {
-            if (trybAktywny) { mruga = true; setTimeout(() => { mruga = false; }, 150); }
+            if (trybAktywny && !czyMowi) { mruga = true; setTimeout(() => { mruga = false; }, 150); }
             setTimeout(cyklMrugania, Math.random() * 3000 + 1500); 
         }
         setTimeout(cyklMrugania, 2000);
@@ -164,13 +178,14 @@
                     docelowyX = celBladzeniaX; docelowyY = celBladzeniaY;
                 }
 
+                // USYPIANIE
                 if (trybAktywny && !czyMowi && !przetwarzanieWToku) {
-                    if (teraz - czasOstatniejAktywnosci > 30000) { 
+                    if (teraz - czasOstatniejAktywnosci > 35000) { 
                         trybAktywny = false;
+                        stanEmocji = 0; // KOD 0 = SEN
                         usta.className = 'usta spi';
                         stanSystemuTxt.innerText = "Brak aktywności. Idę spać...";
-                        wyslijDoESP(90, 90, 0); // Natychmiastowe uśpienie oczu
-                        powiedz("Chyba się schowaliście! Pójdę sobie pospać, pa pa!");
+                        powiedz("Chyba sobie poszliście! Zrobię sobie drzemkę, pa pa!");
                     }
                 }
 
@@ -178,10 +193,10 @@
                 glatkiY = glatkiY + (docelowyY - glatkiY) * 0.15;
 
                 let w = 1; 
-                if (!trybAktywny) w = 0; 
-                else if (mruga) w = 0; 
+                if (!trybAktywny) { w = 0; stanEmocji = 0; } 
+                else if (mruga) { w = 0; } 
 
-                wyslijDoESP(Math.round(glatkiX), Math.round(glatkiY), w);
+                wyslijDoESP(Math.round(glatkiX), Math.round(glatkiY), w, stanEmocji);
             });
 
             const camera = new Camera(videoElement, {
@@ -190,13 +205,13 @@
             camera.start();
         }
 
-        function wyslijDoESP(x, y, widzi) {
+        function wyslijDoESP(x, y, widzi, emocja) {
             if (!gotowyDoWysylania || Date.now() - ostWysylka < 50) return; 
             ostWysylka = Date.now();
-            mostRadiowy.publish("warsztat_gienek_12345/oczy", `${x},${y},${widzi}`);
+            // NOWY PROTOKÓŁ WYSYŁAJĄCY 4 ZMIENNE DO PŁYTKI!
+            mostRadiowy.publish("warsztat_gienek_12345/oczy", `${x},${y},${widzi},${emocja}`);
         }
 
-        // --- FUNKCJA WZROKU (ROBIENIE ZDJĘCIA DLA AI) ---
         function zrobZdjecieDlaAI() {
             try {
                 const canvas = document.createElement('canvas');
@@ -204,11 +219,8 @@
                 canvas.height = 240;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                // Zamiana obrazu na kod zrozumiały dla Gemini (base64)
                 return canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-            } catch(e) {
-                return null;
-            }
+            } catch(e) { return null; }
         }
 
         function uruchomSluch() {
@@ -227,13 +239,17 @@
 
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
-                        trybAktywny = true; usta.className = 'usta slucha'; powiedz("Hej! Słucham was uważnie!");
+                        trybAktywny = true; 
+                        stanEmocji = 1; // 1 = Neutralne wybudzenie
+                        usta.className = 'usta emocja-neutralny'; 
+                        powiedz("Hej! Słucham was uważnie!");
                     }
                 } else {
-                    if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
+                    if (tekst.includes("idź spać") || tekst.includes("wyłącz się") || tekst.includes("dobranoc")) {
                         trybAktywny = false; 
+                        stanEmocji = 0; // 0 = Zamykamy obwody powiek natychmiast
                         usta.className = 'usta spi'; 
-                        wyslijDoESP(90, 90, 0); // Bezpośredni, mocny sygnał ZAMKNIJ OCZY
+                        wyslijDoESP(90, 90, 0, 0); 
                         powiedz("Dobranoc Klementynko, kolorowych snów!"); 
                         return;
                     }
@@ -249,48 +265,38 @@
             
             rozpoznawanieMowy.onerror = (event) => {
                 let errMSG = event.error;
-                if(errMSG === 'not-allowed') errMSG = "Odblokuj ROZPOZNAWANIE MOWY w ustawieniach Safari!";
+                if(errMSG === 'not-allowed') errMSG = "Odblokuj ROZPOZNAWANIE MOWY w Safari!";
                 if(errMSG === 'network') errMSG = "Włącz DYKTOWANIE w klawiaturze!";
-                
                 stanSystemuTxt.innerText = "Błąd słuchu: " + errMSG;
-                stanSystemuTxt.style.color = "#ff3b30";
-                
                 if(event.error === 'no-speech' || event.error === 'network') {
-                    if(!czyMowi && !przetwarzanieWToku) {
-                        setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500);
-                    }
+                    if(!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500);
                 }
             };
 
             rozpoznawanieMowy.onend = () => { 
-                if (!czyMowi && !przetwarzanieWToku) {
-                    setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 200); 
-                }
+                if (!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 200); 
             };
             
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } 
-            catch(e) { stanSystemuTxt.innerText = "Sprawdź ustawienia Safari!"; }
+            catch(e) {}
         }
 
         async function zapytajGemini(pytanie) {
             stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
-            stanSystemuTxt.style.color = "#ff3366";
             
-            // NOWA INSTRUKCJA (Zezwolenie na bajki + Wzrok)
-            const PROMPT_DLA_DZIECKA = "Jesteś Gienek, wesoły, niesamowicie kreatywny i zabawny robot przyjaciel. Zostałeś zbudowany dla małej Klementynki (dziewczynki w wieku 3,5 roku). Mów do niej z entuzjazmem, naturalnie! Jesteś robotem z kamerą i WIDZISZ otoczenie przed sobą (otrzymujesz klatkę z kamery). ZASADY: 1. Jeśli Klementynka pyta 'co to jest?', 'kto to?' albo 'co widzisz?', popatrz na załączone zdjęcie i odpowiedz co na nim widzisz. 2. Zawsze odpowiadaj krótko i naturalnie (2-3 zdania). 3. WYJĄTEK: Jeśli poprosi o BAJKĘ, odrzuć limit zdań i opowiedz jej piękną, ciekawą bajkę (około 6-10 zdań)! Pytanie od Klementynki: " + pytanie;
+            // NOWY POTĘŻNY PROMPT - WYMUSZA ZWROT KODU EMOCJI
+            const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, niesamowicie kreatywny robot przyjaciel dla 3,5-letniej Klementynki. WIDZISZ obraz z kamery. 
+ZASADY: 
+1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 
+2. Jeśli poprosi o BAJKĘ, opowiedz długą, piękną historię! 
+3. WYMÓG ABSOLUTNY: Na samym końcu swojej wypowiedzi MUSISZ dopisać w nawiasach kwadratowych jedną emocję, np: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY]. Dopasuj ją do tego co mówisz!
+Pytanie Klementynki: ${pytanie}`;
 
-            // PRZECHWYTYWANIE ZDJĘCIA Z KAMERY
             let czesciWiadomosci = [{ text: PROMPT_DLA_DZIECKA }];
             let zdjecieB64 = zrobZdjecieDlaAI();
             
-            // Jeśli udało się zrobić zdjęcie, dodajemy je do mózgu Gienka
             if (zdjecieB64) {
-                czesciWiadomosci.push({
-                    inlineData: {
-                        mimeType: "image/jpeg",
-                        data: zdjecieB64
-                    }
-                });
+                czesciWiadomosci.push({ inlineData: { mimeType: "image/jpeg", data: zdjecieB64 } });
             }
 
             let udaloSie = false;
@@ -305,48 +311,63 @@
 
                     if (response.ok) {
                         const data = await response.json();
-                        const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (odp) { powiedz(odp); udaloSie = true; break; }
+                        let odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (odp) { 
+                            // PARSOWANIE EMOCJI Z TEKSTU
+                            let wykrEmocja = odp.match(/\[(RADOSC|ZASKOCZENIE|SMUTEK|NEUTRALNY)\]/i);
+                            let klasaUsty = 'emocja-neutralny';
+                            stanEmocji = 1; // Domyślnie Neutral
+
+                            if (wykrEmocja) {
+                                let em = wykrEmocja[1].toUpperCase();
+                                if (em === 'RADOSC') { klasaUsty = 'emocja-radosc'; stanEmocji = 2; }
+                                else if (em === 'ZASKOCZENIE') { klasaUsty = 'emocja-zaskoczenie'; stanEmocji = 3; }
+                                else if (em === 'SMUTEK') { klasaUsty = 'emocja-smutek'; stanEmocji = 4; }
+                                else if (em === 'NEUTRALNY') { klasaUsty = 'emocja-neutralny'; stanEmocji = 1; }
+                            }
+                            
+                            // Wycięcie [EMOCJI] z tekstu, żeby Gienek jej nie przeczytał na głos!
+                            let czystyTekst = odp.replace(/\[.*?\]/g, '').trim();
+                            
+                            powiedz(czystyTekst, klasaUsty); 
+                            udaloSie = true; 
+                            break; 
+                        }
                     } else {
-                        const err = await response.json();
-                        if (response.status === 503 || response.status === 429 || response.status === 404) { continue; } 
-                        else { stanSystemuTxt.innerText = "BŁĄD: " + err.error?.message; wznowNasluch(); return; }
+                        if (response.status === 503 || response.status === 429 || response.status === 404) continue; 
+                        else { wznowNasluch(); return; }
                     }
                 } catch (e) { }
             }
 
-            if (!udaloSie) {
-                stanSystemuTxt.innerText = "Brak połączenia z chmurą.";
-                wznowNasluch();
-            }
+            if (!udaloSie) wznowNasluch();
         }
 
         let interwalKlapania;
-        function powiedz(tekst) {
+        function powiedz(tekst, klasaUsty = 'emocja-neutralny') {
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
-            
-            // OPTYMALNY, CZYSTY GŁOS (bez nadmiernego zwalniania, by uniknąć bełkotu na iOS)
             aktualnaWypowiedz.pitch = 1.1; 
             aktualnaWypowiedz.rate = 0.95;  
             
             czyMowi = true; 
             stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
-            stanSystemuTxt.style.color = "#ff3366";
             
-            // Bezpiecznik wydłużony pod opowiadanie bajek!
+            // Ustawiamy usta na konkretną emocję (np. wielki uśmiech)
+            usta.className = `usta ${klasaUsty}`;
+            
             let przewidywanyCzas = 15000 + (tekst.length * 130);
             clearTimeout(bezpiecznikTTS);
-            bezpiecznikTTS = setTimeout(() => {
-                if (czyMowi) wymusKoniecMowy();
-            }, przewidywanyCzas);
+            bezpiecznikTTS = setTimeout(() => { if (czyMowi) wymusKoniecMowy(); }, przewidywanyCzas);
 
             clearInterval(interwalKlapania);
-            let isSmile = true;
+            let rosnace = true;
+            
+            // Płynna animacja "kłapania" utrzymująca Kształt Emocji (Skalowanie)
             interwalKlapania = setInterval(() => { 
-                isSmile = !isSmile;
-                usta.className = isSmile ? 'usta mowi' : 'usta slucha'; 
-            }, 250); 
+                rosnace = !rosnace;
+                usta.style.transform = rosnace ? 'scaleY(1.2) scaleX(1.05)' : 'scaleY(0.8) scaleX(0.95)'; 
+            }, 200); 
             
             aktualnaWypowiedz.onend = () => { wymusKoniecMowy(); };
             aktualnaWypowiedz.onerror = () => { wymusKoniecMowy(); };
@@ -359,9 +380,15 @@
             clearTimeout(bezpiecznikTTS);
             clearInterval(interwalKlapania); 
             
-            // Po skończeniu bajki/zdania wraca do nasłuchiwania albo zasypia jeśli dostał komendę w międzyczasie
-            if (trybAktywny) usta.className = 'usta slucha'; 
-            else usta.className = 'usta spi';
+            usta.style.transform = 'scale(1)'; // Reset skalowania
+            
+            if (trybAktywny) {
+                stanEmocji = 1; // Wraca do neutralnego
+                usta.className = 'usta emocja-neutralny'; 
+            } else {
+                stanEmocji = 0; // Sen
+                usta.className = 'usta spi';
+            }
             
             czyMowi = false;
             czasOstatniejAktywnosci = Date.now(); 
