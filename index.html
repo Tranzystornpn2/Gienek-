@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 23.0 (Auto-Diagnostyka AI)</title>
+    <title>Gienek 23.1 (Bramka Szumów)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -57,7 +57,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg";
+        const SUROWY_KLUCZ = "AQ.Ab8RN6LvPNTnzn2p2aa7S8TFiKegjo1TtkCH3Y6HebjHWcROfg"
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -70,6 +70,8 @@
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
         let aktualnaWypowiedz = null; 
         
+        let przetwarzaZapytanie = false; // BLOKADA BRAMKI SZUMÓW I SPRZĘŻEŃ
+        
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
 
@@ -80,7 +82,7 @@
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
         
-        let aktywowanyModel = "models/gemini-1.5-flash"; // Fallback na start
+        let aktywowanyModel = "models/gemini-1.5-flash"; 
 
         function cyklMrugania() {
             if (trybAktywny) {
@@ -96,7 +98,7 @@
         function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
 
         function uruchomiOS() {
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); // Start audio
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
             stanSystemuTxt.innerText = "Start systemów...";
@@ -109,12 +111,11 @@
                 strumien.getTracks().forEach(t => t.stop());
             } catch(e) { }
 
-            // --- AUTO-DIAGNOSTYKA MODELU AI ---
             if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
                 stanSystemuTxt.innerText = "BŁĄD: ZAPOMNIAŁEŚ KLUCZA API!";
                 stanSystemuTxt.style.color = "#ff3b30";
             } else {
-                stanSystemuTxt.innerText = "Skanowanie serwerów Google w poszukiwaniu modelu...";
+                stanSystemuTxt.innerText = "Skanowanie serwerów Google...";
                 try {
                     const modelRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEY}`);
                     if (modelRes.ok) {
@@ -122,30 +123,29 @@
                         let znaleziony = false;
                         for (let m of modelData.models) {
                             if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
-                                aktywowanyModel = m.name; // Zwraca poprawną nazwę, np. "models/gemini-pro"
+                                aktywowanyModel = m.name; 
                                 znaleziony = true;
-                                if (aktywowanyModel.includes("flash")) break; // Szukamy najszybszego 
+                                if (aktywowanyModel.includes("flash")) break; 
                             }
                         }
                         if (znaleziony) {
                             stanSystemuTxt.innerText = "Podpięto model: " + aktywowanyModel.replace('models/','');
                             stanSystemuTxt.style.color = "#00ffcc";
                         } else {
-                            stanSystemuTxt.innerText = "BŁĄD: Brak obsługiwnych modeli dla tego klucza.";
+                            stanSystemuTxt.innerText = "BŁĄD: Brak obsługiwanych modeli.";
                             stanSystemuTxt.style.color = "#ff3b30";
                         }
                     } else {
                         const err = await modelRes.json();
-                        stanSystemuTxt.innerText = "BŁĄD KLUCZA: " + (err.error?.message || "Odrzucono dostęp!");
+                        stanSystemuTxt.innerText = "BŁĄD KLUCZA: " + (err.error?.message || "Odrzucono!");
                         stanSystemuTxt.style.color = "#ff3b30";
                     }
                 } catch(e) {
-                    stanSystemuTxt.innerText = "Błąd komunikacji autodiagnostyki z Google.";
+                    stanSystemuTxt.innerText = "Błąd komunikacji autodiagnostyki.";
                     stanSystemuTxt.style.color = "#ff3b30";
                 }
             }
 
-            // --- START RESZTY SYSTEMÓW ---
             const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
             mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#00ffcc"; });
@@ -232,9 +232,20 @@
                         trybAktywny = true; usta.classList.remove('spi'); powiedz("Słucham szefie?");
                     }
                 } else {
+                    // BLOKADA: Nie przetwarzaj, jeśli właśnie odpowiada lub łączy się z chmurą
+                    if (przetwarzaZapytanie || czyMowi) return; 
+
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
                         trybAktywny = false; usta.classList.add('spi'); powiedz("Dobranoc."); return;
                     }
+
+                    // BRAMKA SZUMÓW: Ignoruj bardzo krótkie hałasy
+                    if (tekst.length < 5) {
+                        stanSystemuTxt.innerText = "Zignorowano szum (" + tekst + ")";
+                        return;
+                    }
+                    
+                    przetwarzaZapytanie = true; // ZATRZASK BLOKADY
                     await zapytajGemini(tekst);
                 }
             };
@@ -245,11 +256,10 @@
         }
 
         async function zapytajGemini(pytanie) {
-            stanSystemuTxt.innerText = "Myślę...";
+            stanSystemuTxt.innerText = "Słyszę: " + pytanie + ". Myślę...";
             stanSystemuTxt.style.color = "#00ffcc";
 
             try {
-                // Wykorzystujemy DOKŁADNIE ten model, który zwrócił sam serwer w auto-diagnostyce!
                 const url = `https://generativelanguage.googleapis.com/v1beta/${aktywowanyModel}:generateContent?key=${GEMINI_KEY}`;
                 
                 const response = await fetch(url, {
@@ -269,15 +279,19 @@
                     const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
                     if (odp) {
                         powiedz(odp);
+                    } else {
+                        przetwarzaZapytanie = false; // Zwolnij blokadę jeśli błąd danych
                     }
                 } else {
                     const err = await response.json();
                     stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
                     stanSystemuTxt.style.color = "#ff3b30";
+                    przetwarzaZapytanie = false; // Zwolnij blokadę przy błędzie serwera
                 }
             } catch (e) {
                 stanSystemuTxt.innerText = "Brak połączenia z chmurą AI.";
                 stanSystemuTxt.style.color = "#ff3b30";
+                przetwarzaZapytanie = false; // Zwolnij blokadę przy braku neta
             }
         }
 
@@ -294,6 +308,7 @@
             
             aktualnaWypowiedz.onend = () => {
                 clearInterval(interwalKlapania); usta.classList.remove('mowi'); czyMowi = false;
+                przetwarzaZapytanie = false; // ODBLOKOWANIE SZUMÓW PO SKOŃCZENIU MOWY
                 stanSystemuTxt.innerText = "Nasłuchiwanie otoczenia...";
                 setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 400);
             };
