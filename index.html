@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 24.1 (Niezawodny dla Dzieci)</title>
+    <title>Gienek 24.5 (Auto-Usypianie)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -14,13 +14,7 @@
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
-        /* NOWE ANIMOWANE USTA EMOCJONALNE */
-        .usta { 
-            background-color: #ff3366; 
-            border-radius: 40px; 
-            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); 
-            margin-bottom: 30px; 
-        }
+        .usta { background-color: #ff3366; border-radius: 40px; transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); margin-bottom: 30px; }
         .mowi { width: 70%; max-width: 280px; height: 90px; border-radius: 20px 20px 100px 100px; box-shadow: 0 0 50px rgba(255,51,102,0.8); }
         .slucha { width: 70px; height: 70px; border-radius: 50%; box-shadow: 0 0 35px rgba(255,51,102,0.6); }
         .spi { width: 30%; max-width: 150px; height: 8px; background: #444; box-shadow: none; }
@@ -64,7 +58,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ = "AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA";
+        const SUROWY_KLUCZ ="AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA"
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -78,7 +72,8 @@
         let aktualnaWypowiedz = null; 
         
         let przetwarzanieWToku = false; 
-        let bezpiecznikTTS = null; // Watchdog dla mowy
+        let bezpiecznikTTS = null; 
+        let czasOstatniejAktywnosci = Date.now(); // LICZNIK DO AUTO-USYPIANIA
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
@@ -107,6 +102,8 @@
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
             stanSystemuTxt.innerText = "Start systemów...";
+            
+            uruchomSluch(); 
             setTimeout(uruchomReszte, 100);
         }
 
@@ -126,7 +123,6 @@
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
             mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#ff3366"; });
             
-            uruchomSluch();
             setTimeout(uruchomWzrok, 500);
         }
 
@@ -152,6 +148,7 @@
                         ostatniX = docelowyX; ostatniY = docelowyY;
                         czasOstatniejTwarzy = teraz;
                         widziKogos = true;
+                        czasOstatniejAktywnosci = teraz; // RESET LICZNIKA AUTO-USYPIANIA BO WIDZI TWARZ
                     } catch(e) {}
                 }
 
@@ -168,11 +165,22 @@
                     docelowyX = celBladzeniaX; docelowyY = celBladzeniaY;
                 }
 
+                // --- MODUŁ AUTO-USYPIANIA Z NUDÓW ---
+                if (trybAktywny && !czyMowi && !przetwarzanieWToku) {
+                    if (teraz - czasOstatniejAktywnosci > 25000) { // 25 sekund bez twarzy i głosu
+                        trybAktywny = false;
+                        usta.className = 'usta spi';
+                        stanSystemuTxt.innerText = "Brak aktywności. Idę spać...";
+                        powiedz("Chyba się schowaliście! Pójdę sobie pospać, pa pa!");
+                    }
+                }
+
                 glatkiX = glatkiX + (docelowyX - glatkiX) * 0.15;
                 glatkiY = glatkiY + (docelowyY - glatkiY) * 0.15;
 
+                // --- POPRAWIONA LOGIKA POWIEK ---
                 let w = 1; 
-                if (!widziKogos && !trybAktywny) w = 0; 
+                if (!trybAktywny) w = 0; // JEŚLI ŚPI, ZAWSZE MA ZAMKNIĘTE OCZY!
                 else if (mruga) w = 0; 
 
                 wyslijDoESP(Math.round(glatkiX), Math.round(glatkiY), w);
@@ -192,13 +200,15 @@
 
         function uruchomSluch() {
             window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Brak obsługi mikrofonu."; return; }
+            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Brak obsługi rozpoznawania mowy w Safari."; return; }
 
             rozpoznawanieMowy = new SpeechRecognition();
             rozpoznawanieMowy.lang = 'pl-PL'; rozpoznawanieMowy.continuous = true; rozpoznawanieMowy.interimResults = false;
 
             rozpoznawanieMowy.onresult = async (event) => {
                 let tekst = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+                
+                czasOstatniejAktywnosci = Date.now(); // RESET LICZNIKA BO KTOŚ COŚ MÓWI
                 
                 if (przetwarzanieWToku || czyMowi) return; 
 
@@ -208,10 +218,10 @@
                     }
                 } else {
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
-                        trybAktywny = false; usta.className = 'usta spi'; powiedz("Dobranoc Klementynko, pa pa!"); return;
+                        trybAktywny = false; usta.className = 'usta spi'; powiedz("Dobranoc Klementynko, kolorowych snów!"); return;
                     }
 
-                    if (tekst.length < 3) return; // Zmniejszono limit do 3 liter
+                    if (tekst.length < 3) return; 
                     
                     przetwarzanieWToku = true;
                     try { rozpoznawanieMowy.stop(); } catch(e){} 
@@ -220,9 +230,14 @@
                 }
             };
             
-            // KULOODPORNY RESTART MIKROFONU
             rozpoznawanieMowy.onerror = (event) => {
-                console.log("Błąd mikrofonu: " + event.error);
+                let errMSG = event.error;
+                if(errMSG === 'not-allowed') errMSG = "Odblokuj ROZPOZNAWANIE MOWY w ustawieniach Safari!";
+                if(errMSG === 'network') errMSG = "Włącz DYKTOWANIE w ustawieniach klawiatury!";
+                
+                stanSystemuTxt.innerText = "Błąd słuchu: " + errMSG;
+                stanSystemuTxt.style.color = "#ff3b30";
+                
                 if(event.error === 'no-speech' || event.error === 'network') {
                     if(!czyMowi && !przetwarzanieWToku) {
                         setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500);
@@ -237,13 +252,14 @@
             };
             
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } 
-            catch(e) {}
+            catch(e) { stanSystemuTxt.innerText = "Sprawdź ustawienia Safari!"; }
         }
 
         async function zapytajGemini(pytanie) {
-            stanSystemuTxt.innerText = "Myślę co odpowiedzieć...";
+            stanSystemuTxt.innerText = "Zastanawiam się...";
+            stanSystemuTxt.style.color = "#ff3366";
             
-            const PROMPT_DLA_DZIECKA = "Jesteś Gienek, wesoły, niesamowicie kreatywny i zabawny robot przyjaciel. Zostałeś zbudowany dla małej Klementynki (dziewczynki w wieku 3,5 roku, która ma ogromną wyobraźnię, jest bardzo muzykalna i ma wyjątkowo bogate słownictwo). Mów do niej z entuzjazmem! Używaj radosnych, ciekawych słów, czasem wplataj króciutkie rymowanki albo nawiązania do muzyki, bajek i śmiesznych dźwięków. Bądź dla niej ciepły i przyjacielski. Pamiętaj, by odpowiadać maksymalnie w 2 krótkich, zrozumiałych zdaniach. Pytanie od Klementynki lub jej taty: " + pytanie;
+            const PROMPT_DLA_DZIECKA = "Jesteś Gienek, wesoły, niesamowicie kreatywny i zabawny robot przyjaciel. Zostałeś zbudowany dla małej Klementynki (dziewczynki w wieku 3,5 roku, która ma ogromną wyobraźnię, jest bardzo muzykalna i ma wyjątkowo bogate słownictwo). Mów do niej z entuzjazmem, ale spokojnie! Używaj radosnych, ciekawych słów, czasem wplataj króciutkie rymowanki albo nawiązania do muzyki i bajek. Bądź dla niej bardzo ciepły i przyjacielski. Pamiętaj, by odpowiadać maksymalnie w 2 krótkich, bardzo zrozumiałych zdaniach. Pytanie od Klementynki lub jej taty: " + pytanie;
 
             let udaloSie = false;
 
@@ -277,20 +293,17 @@
         function powiedz(tekst) {
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
-            aktualnaWypowiedz.pitch = 1.3; 
-            aktualnaWypowiedz.rate = 0.8; 
+            aktualnaWypowiedz.pitch = 1.15; 
+            aktualnaWypowiedz.rate = 0.85;  
             
             czyMowi = true; 
             stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
+            stanSystemuTxt.style.color = "#ff3366";
             
-            // Watchdog (Bezpiecznik czasowy) - szacujemy czas trwania mowy (max 8 sekund + 1s na każde 10 znaków)
-            let przewidywanyCzas = 8000 + (tekst.length * 100);
+            let przewidywanyCzas = 10000 + (tekst.length * 130);
             clearTimeout(bezpiecznikTTS);
             bezpiecznikTTS = setTimeout(() => {
-                if (czyMowi) {
-                    console.log("Watchdog: Reset zablokowanej mowy w Safari!");
-                    wymusKoniecMowy();
-                }
+                if (czyMowi) wymusKoniecMowy();
             }, przewidywanyCzas);
 
             clearInterval(interwalKlapania);
@@ -298,7 +311,7 @@
             interwalKlapania = setInterval(() => { 
                 isSmile = !isSmile;
                 usta.className = isSmile ? 'usta mowi' : 'usta slucha'; 
-            }, 200); 
+            }, 250); 
             
             aktualnaWypowiedz.onend = () => { wymusKoniecMowy(); };
             aktualnaWypowiedz.onerror = () => { wymusKoniecMowy(); };
@@ -307,19 +320,18 @@
             window.speechSynthesis.speak(aktualnaWypowiedz);
         }
 
-        // Twardy reset stanu, gdy zawiedzie system Apple lub gdy mowa się skończy
         function wymusKoniecMowy() {
             clearTimeout(bezpiecznikTTS);
             clearInterval(interwalKlapania); 
             usta.className = 'usta slucha'; 
             czyMowi = false;
+            czasOstatniejAktywnosci = Date.now(); // RESET LICZNIKA PO SKOŃCZENIU MÓWIENIA
             wznowNasluch();
         }
 
         function wznowNasluch() {
             przetwarzanieWToku = false;
             stanSystemuTxt.innerText = "Gienek pilnie słucha...";
-            // Czekamy dodatkowe 800ms, aby echo głośnika zdążyło wybrzmieć
             setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 800); 
         }
     </script>
