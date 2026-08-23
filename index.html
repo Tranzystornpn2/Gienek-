@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 24.0 (Wersja dla Dzieci)</title>
+    <title>Gienek 24.1 (Niezawodny dla Dzieci)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -21,24 +21,9 @@
             transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); 
             margin-bottom: 30px; 
         }
-        /* Emocja: Uśmiech podczas mówienia (Kształt litery D) */
-        .mowi { 
-            width: 70%; max-width: 280px; height: 90px; 
-            border-radius: 20px 20px 100px 100px; 
-            box-shadow: 0 0 50px rgba(255,51,102,0.8); 
-        }
-        /* Emocja: Zaciekawienie / Nasłuchiwanie (Okrągłe "O") */
-        .slucha { 
-            width: 70px; height: 70px; 
-            border-radius: 50%; 
-            box-shadow: 0 0 35px rgba(255,51,102,0.6); 
-        }
-        /* Emocja: Sen */
-        .spi { 
-            width: 30%; max-width: 150px; height: 8px; 
-            background: #444; 
-            box-shadow: none; 
-        }
+        .mowi { width: 70%; max-width: 280px; height: 90px; border-radius: 20px 20px 100px 100px; box-shadow: 0 0 50px rgba(255,51,102,0.8); }
+        .slucha { width: 70px; height: 70px; border-radius: 50%; box-shadow: 0 0 35px rgba(255,51,102,0.6); }
+        .spi { width: 30%; max-width: 150px; height: 8px; background: #444; box-shadow: none; }
         
         #debug { font-size: 15px; color: #888; text-align: center; position: absolute; bottom: 25px; width: 90%; word-break: break-word; }
         .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px;}
@@ -93,6 +78,7 @@
         let aktualnaWypowiedz = null; 
         
         let przetwarzanieWToku = false; 
+        let bezpiecznikTTS = null; // Watchdog dla mowy
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
@@ -104,11 +90,7 @@
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
         
-        const dostepneModele = [
-            "gemini-2.5-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro"
-        ];
+        const dostepneModele = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
 
         function cyklMrugania() {
             if (trybAktywny) { mruga = true; setTimeout(() => { mruga = false; }, 150); }
@@ -134,7 +116,7 @@
                 strumien.getTracks().forEach(t => t.stop());
             } catch(e) { }
 
-            if (GEMINI_KEY === "AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA" || GEMINI_KEY === "") {
+            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
                 stanSystemuTxt.innerText = "BŁĄD: ZAPOMNIAŁEŚ KLUCZA API!";
                 stanSystemuTxt.style.color = "#ff3b30";
                 return;
@@ -189,14 +171,11 @@
                 glatkiX = glatkiX + (docelowyX - glatkiX) * 0.15;
                 glatkiY = glatkiY + (docelowyY - glatkiY) * 0.15;
 
-                let finalX = Math.round(glatkiX);
-                let finalY = Math.round(glatkiY);
-
                 let w = 1; 
                 if (!widziKogos && !trybAktywny) w = 0; 
                 else if (mruga) w = 0; 
 
-                wyslijDoESP(finalX, finalY, w);
+                wyslijDoESP(Math.round(glatkiX), Math.round(glatkiY), w);
             });
 
             const camera = new Camera(videoElement, {
@@ -225,18 +204,14 @@
 
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
-                        trybAktywny = true; 
-                        usta.className = 'usta slucha'; 
-                        powiedz("Hej! Słucham was uważnie!");
+                        trybAktywny = true; usta.className = 'usta slucha'; powiedz("Hej! Słucham was uważnie!");
                     }
                 } else {
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
-                        trybAktywny = false; 
-                        usta.className = 'usta spi'; 
-                        powiedz("Dobranoc Klementynko, pa pa!"); return;
+                        trybAktywny = false; usta.className = 'usta spi'; powiedz("Dobranoc Klementynko, pa pa!"); return;
                     }
 
-                    if (tekst.length < 5) return; 
+                    if (tekst.length < 3) return; // Zmniejszono limit do 3 liter
                     
                     przetwarzanieWToku = true;
                     try { rozpoznawanieMowy.stop(); } catch(e){} 
@@ -245,59 +220,51 @@
                 }
             };
             
+            // KULOODPORNY RESTART MIKROFONU
+            rozpoznawanieMowy.onerror = (event) => {
+                console.log("Błąd mikrofonu: " + event.error);
+                if(event.error === 'no-speech' || event.error === 'network') {
+                    if(!czyMowi && !przetwarzanieWToku) {
+                        setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500);
+                    }
+                }
+            };
+
             rozpoznawanieMowy.onend = () => { 
                 if (!czyMowi && !przetwarzanieWToku) {
-                    setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); 
+                    setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 200); 
                 }
             };
             
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } 
-            catch(e) { stanSystemuTxt.innerText = "Sprawdź uprawnienia mikrofonu!"; }
+            catch(e) {}
         }
 
         async function zapytajGemini(pytanie) {
-            stanSystemuTxt.innerText = "Zastanawiam się...";
+            stanSystemuTxt.innerText = "Myślę co odpowiedzieć...";
             
-            // NOWY PROFIL PSYCHOLOGICZNY GIENKA DLA KLEMENTYNKI
-            const PROMPT_DLA_DZIECKA = "Jesteś Gienek, wesoły, niesamowicie kreatywny i zabawny robot przyjaciel. Zostałeś zbudowany dla małej Klementynki (dziewczynki w wieku 3,5 roku, która ma ogromną wyobraźnię, jest bardzo muzykalna i ma wyjątkowo bogate słownictwo). Mów do niej z entuzjazmem! Używaj radosnych, ciekawych słów, czasem wplataj króciutkie rymowanki albo nawiązania do muzyki, bajek i śmiesznych dźwięków. Bądź dla niej ciepły i przyjacielski. Pamiętaj, by odpowiadać maksymalnie w 2 lub 3 krótkich, zrozumiałych zdaniach. Pytanie od Klementynki lub jej taty: " + pytanie;
+            const PROMPT_DLA_DZIECKA = "Jesteś Gienek, wesoły, niesamowicie kreatywny i zabawny robot przyjaciel. Zostałeś zbudowany dla małej Klementynki (dziewczynki w wieku 3,5 roku, która ma ogromną wyobraźnię, jest bardzo muzykalna i ma wyjątkowo bogate słownictwo). Mów do niej z entuzjazmem! Używaj radosnych, ciekawych słów, czasem wplataj króciutkie rymowanki albo nawiązania do muzyki, bajek i śmiesznych dźwięków. Bądź dla niej ciepły i przyjacielski. Pamiętaj, by odpowiadać maksymalnie w 2 krótkich, zrozumiałych zdaniach. Pytanie od Klementynki lub jej taty: " + pytanie;
 
             let udaloSie = false;
 
             for (let model of dostepneModele) {
                 try {
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
-                    
                     const response = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: PROMPT_DLA_DZIECKA }] }]
-                        })
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: PROMPT_DLA_DZIECKA }] }] })
                     });
 
                     if (response.ok) {
                         const data = await response.json();
                         const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (odp) {
-                            powiedz(odp);
-                            udaloSie = true;
-                            break; 
-                        }
+                        if (odp) { powiedz(odp); udaloSie = true; break; }
                     } else {
                         const err = await response.json();
-                        const errMsg = err.error?.message || "";
-                        
-                        if (response.status === 503 || errMsg.includes("high demand") || response.status === 429 || response.status === 404) {
-                            continue; 
-                        } else {
-                            stanSystemuTxt.innerText = "BŁĄD: " + errMsg;
-                            wznowNasluch();
-                            return;
-                        }
+                        if (response.status === 503 || response.status === 429 || response.status === 404) { continue; } 
+                        else { stanSystemuTxt.innerText = "BŁĄD: " + err.error?.message; wznowNasluch(); return; }
                     }
-                } catch (e) {
-                    console.log("Szukam połączenia...");
-                }
+                } catch (e) { }
             }
 
             if (!udaloSie) {
@@ -306,43 +273,54 @@
             }
         }
 
+        let interwalKlapania;
         function powiedz(tekst) {
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
-            
-            // Głos wyższy i szybszy, bardziej entuzjastyczny dla dziecka
             aktualnaWypowiedz.pitch = 1.3; 
             aktualnaWypowiedz.rate = 1.1; 
             
             czyMowi = true; 
             stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
             
-            // Animacja emocji na ustach (przełączanie między uśmiechem a zaciekawieniem)
-            let isSmile = true;
-            let interwalKlapania = setInterval(() => { 
-                isSmile = !isSmile;
-                if (isSmile) {
-                    usta.className = 'usta mowi'; // Wielki uśmiech
-                } else {
-                    usta.className = 'usta slucha'; // Okrągłe "O"
+            // Watchdog (Bezpiecznik czasowy) - szacujemy czas trwania mowy (max 8 sekund + 1s na każde 10 znaków)
+            let przewidywanyCzas = 8000 + (tekst.length * 100);
+            clearTimeout(bezpiecznikTTS);
+            bezpiecznikTTS = setTimeout(() => {
+                if (czyMowi) {
+                    console.log("Watchdog: Reset zablokowanej mowy w Safari!");
+                    wymusKoniecMowy();
                 }
-            }, 200); // Wolniejsze, płynne kłapanie
+            }, przewidywanyCzas);
+
+            clearInterval(interwalKlapania);
+            let isSmile = true;
+            interwalKlapania = setInterval(() => { 
+                isSmile = !isSmile;
+                usta.className = isSmile ? 'usta mowi' : 'usta slucha'; 
+            }, 200); 
             
-            aktualnaWypowiedz.onend = () => {
-                clearInterval(interwalKlapania); 
-                usta.className = 'usta slucha'; // Po skończeniu mowy wraca do zaciekawionego nasłuchiwania
-                czyMowi = false;
-                wznowNasluch();
-            };
+            aktualnaWypowiedz.onend = () => { wymusKoniecMowy(); };
+            aktualnaWypowiedz.onerror = () => { wymusKoniecMowy(); };
             
             try { rozpoznawanieMowy.stop(); } catch(e){} 
             window.speechSynthesis.speak(aktualnaWypowiedz);
         }
 
+        // Twardy reset stanu, gdy zawiedzie system Apple lub gdy mowa się skończy
+        function wymusKoniecMowy() {
+            clearTimeout(bezpiecznikTTS);
+            clearInterval(interwalKlapania); 
+            usta.className = 'usta slucha'; 
+            czyMowi = false;
+            wznowNasluch();
+        }
+
         function wznowNasluch() {
             przetwarzanieWToku = false;
             stanSystemuTxt.innerText = "Gienek pilnie słucha...";
-            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500); 
+            // Czekamy dodatkowe 800ms, aby echo głośnika zdążyło wybrzmieć
+            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 800); 
         }
     </script>
 </body>
