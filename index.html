@@ -3,20 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 23.2 (Half-Duplex)</title>
+    <title>Gienek 24.0 (Wersja dla Dzieci)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
     <style>
-        body { background: #050505; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; overflow: hidden; }
+        body { background: #050505; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: 'Comic Sans MS', sans-serif; overflow: hidden; }
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
-        .usta { width: 60%; max-width: 300px; height: 25px; background-color: #00ffcc; border-radius: 40px; transition: height 0.1s; margin-bottom: 30px; box-shadow: 0 0 20px rgba(0,255,204,0.3); }
-        .mowi { height: 100px; border-radius: 20px; box-shadow: 0 0 40px rgba(0,255,204,0.6); }
-        .spi { height: 4px; background: #333; box-shadow: none; }
+        /* NOWE ANIMOWANE USTA EMOCJONALNE */
+        .usta { 
+            background-color: #ff3366; 
+            border-radius: 40px; 
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); 
+            margin-bottom: 30px; 
+        }
+        /* Emocja: Uśmiech podczas mówienia (Kształt litery D) */
+        .mowi { 
+            width: 70%; max-width: 280px; height: 90px; 
+            border-radius: 20px 20px 100px 100px; 
+            box-shadow: 0 0 50px rgba(255,51,102,0.8); 
+        }
+        /* Emocja: Zaciekawienie / Nasłuchiwanie (Okrągłe "O") */
+        .slucha { 
+            width: 70px; height: 70px; 
+            border-radius: 50%; 
+            box-shadow: 0 0 35px rgba(255,51,102,0.6); 
+        }
+        /* Emocja: Sen */
+        .spi { 
+            width: 30%; max-width: 150px; height: 8px; 
+            background: #444; 
+            box-shadow: none; 
+        }
         
         #debug { font-size: 15px; color: #888; text-align: center; position: absolute; bottom: 25px; width: 90%; word-break: break-word; }
         .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px;}
@@ -31,13 +53,13 @@
 <body>
 
     <button id="ustawieniaBtn" onclick="pokazTrymer()">⚙️</button>
-    <button id="startBtn" onclick="uruchomiOS()">ZBUDŹ MASZYNĘ</button>
+    <button id="startBtn" onclick="uruchomiOS()">OBUDŹ GIENKA</button>
     
     <div class="usta spi" id="ustaGienka"></div>
     <video id="webcam" autoplay playsinline muted></video>
     
     <div id="debug">
-        <span id="stanSystemu" style="color: #00ffcc;">System Gienek OS oczekuje...</span>
+        <span id="stanSystemu" style="color: #ff3366;">Gienek słodko śpi...</span>
         <span id="mqttStatus" class="mqtt-status">Sieć Neuralna: OFF</span>
     </div>
 
@@ -57,7 +79,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ = "AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA";
+        const SUROWY_KLUCZ = "TUTAJ_WKLEJ_SWÓJ_KLUCZ";
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -70,7 +92,7 @@
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
         let aktualnaWypowiedz = null; 
         
-        let przetwarzanieWToku = false; // BLOKADA HALF-DUPLEX
+        let przetwarzanieWToku = false; 
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
         let offsetY = parseInt(localStorage.getItem('gienekOffsetY')) || 0;
@@ -82,14 +104,15 @@
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
         
-        let aktywowanyModel = "models/gemini-1.5-flash"; 
+        const dostepneModele = [
+            "gemini-2.5-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+        ];
 
         function cyklMrugania() {
-            if (trybAktywny) {
-                mruga = true;
-                setTimeout(() => { mruga = false; }, 150); 
-            }
-            setTimeout(cyklMrugania, Math.random() * 4000 + 2000); 
+            if (trybAktywny) { mruga = true; setTimeout(() => { mruga = false; }, 150); }
+            setTimeout(cyklMrugania, Math.random() * 3000 + 1500); 
         }
         setTimeout(cyklMrugania, 2000);
 
@@ -111,44 +134,15 @@
                 strumien.getTracks().forEach(t => t.stop());
             } catch(e) { }
 
-            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
+            if (GEMINI_KEY === "AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA" || GEMINI_KEY === "") {
                 stanSystemuTxt.innerText = "BŁĄD: ZAPOMNIAŁEŚ KLUCZA API!";
                 stanSystemuTxt.style.color = "#ff3b30";
-            } else {
-                stanSystemuTxt.innerText = "Skanowanie serwerów Google...";
-                try {
-                    const modelRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEY}`);
-                    if (modelRes.ok) {
-                        const modelData = await modelRes.json();
-                        let znaleziony = false;
-                        for (let m of modelData.models) {
-                            if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")) {
-                                aktywowanyModel = m.name; 
-                                znaleziony = true;
-                                if (aktywowanyModel.includes("flash")) break; 
-                            }
-                        }
-                        if (znaleziony) {
-                            stanSystemuTxt.innerText = "Podpięto model: " + aktywowanyModel.replace('models/','');
-                            stanSystemuTxt.style.color = "#00ffcc";
-                        } else {
-                            stanSystemuTxt.innerText = "BŁĄD: Brak obsługiwanych modeli.";
-                            stanSystemuTxt.style.color = "#ff3b30";
-                        }
-                    } else {
-                        const err = await modelRes.json();
-                        stanSystemuTxt.innerText = "BŁĄD KLUCZA: " + (err.error?.message || "Odrzucono!");
-                        stanSystemuTxt.style.color = "#ff3b30";
-                    }
-                } catch(e) {
-                    stanSystemuTxt.innerText = "Błąd komunikacji autodiagnostyki.";
-                    stanSystemuTxt.style.color = "#ff3b30";
-                }
-            }
+                return;
+            } 
 
             const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
-            mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#00ffcc"; });
+            mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#ff3366"; });
             
             uruchomSluch();
             setTimeout(uruchomWzrok, 500);
@@ -227,103 +221,128 @@
             rozpoznawanieMowy.onresult = async (event) => {
                 let tekst = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
                 
-                // === HALF-DUPLEX BLOKADA ===
                 if (przetwarzanieWToku || czyMowi) return; 
 
                 if (!trybAktywny) {
                     if (tekst.includes("gienek") || tekst.includes("genek")) {
-                        trybAktywny = true; usta.classList.remove('spi'); powiedz("Słucham szefie?");
+                        trybAktywny = true; 
+                        usta.className = 'usta slucha'; 
+                        powiedz("Hej! Słucham was uważnie!");
                     }
                 } else {
                     if (tekst.includes("idź spać") || tekst.includes("wyłącz się")) {
-                        trybAktywny = false; usta.classList.add('spi'); powiedz("Dobranoc."); return;
+                        trybAktywny = false; 
+                        usta.className = 'usta spi'; 
+                        powiedz("Dobranoc Klementynko, pa pa!"); return;
                     }
 
-                    if (tekst.length < 5) return; // Ignorowanie chrząknięć
+                    if (tekst.length < 5) return; 
                     
                     przetwarzanieWToku = true;
-                    // FIZYCZNE ODCIĘCIE MIKROFONU NA CZAS MYŚLENIA I MÓWIENIA
                     try { rozpoznawanieMowy.stop(); } catch(e){} 
                     
                     await zapytajGemini(tekst);
                 }
             };
             
-            // Reaktywacja mikrofonu TYLKO jeśli nie mówimy i nie myślimy
             rozpoznawanieMowy.onend = () => { 
                 if (!czyMowi && !przetwarzanieWToku) {
                     setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 100); 
                 }
             };
             
-            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wywołać."; } 
+            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } 
             catch(e) { stanSystemuTxt.innerText = "Sprawdź uprawnienia mikrofonu!"; }
         }
 
         async function zapytajGemini(pytanie) {
-            stanSystemuTxt.innerText = "Słyszę: " + pytanie + ". Myślę...";
-            stanSystemuTxt.style.color = "#00ffcc";
+            stanSystemuTxt.innerText = "Zastanawiam się...";
+            
+            // NOWY PROFIL PSYCHOLOGICZNY GIENKA DLA KLEMENTYNKI
+            const PROMPT_DLA_DZIECKA = "Jesteś Gienek, wesoły, niesamowicie kreatywny i zabawny robot przyjaciel. Zostałeś zbudowany dla małej Klementynki (dziewczynki w wieku 3,5 roku, która ma ogromną wyobraźnię, jest bardzo muzykalna i ma wyjątkowo bogate słownictwo). Mów do niej z entuzjazmem! Używaj radosnych, ciekawych słów, czasem wplataj króciutkie rymowanki albo nawiązania do muzyki, bajek i śmiesznych dźwięków. Bądź dla niej ciepły i przyjacielski. Pamiętaj, by odpowiadać maksymalnie w 2 lub 3 krótkich, zrozumiałych zdaniach. Pytanie od Klementynki lub jej taty: " + pytanie;
 
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/${aktywowanyModel}:generateContent?key=${GEMINI_KEY}`;
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{
-                                text: "Jesteś Gienek, mechanik samochodowy i elektronik w warsztacie w Goczałkowicach-Zdroju. Odpowiadaj bardzo krótko, maksymalnie 2 konkretne zdania z humorem technicznym. Pytanie: " + pytanie
-                            }]
-                        }]
-                    })
-                });
+            let udaloSie = false;
 
-                if (response.ok) {
-                    const data = await response.json();
-                    const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (odp) {
-                        powiedz(odp);
+            for (let model of dostepneModele) {
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+                    
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: PROMPT_DLA_DZIECKA }] }]
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (odp) {
+                            powiedz(odp);
+                            udaloSie = true;
+                            break; 
+                        }
                     } else {
-                        wznowNasluch(); // Brak odpowiedzi, wznów nasłuch
+                        const err = await response.json();
+                        const errMsg = err.error?.message || "";
+                        
+                        if (response.status === 503 || errMsg.includes("high demand") || response.status === 429 || response.status === 404) {
+                            continue; 
+                        } else {
+                            stanSystemuTxt.innerText = "BŁĄD: " + errMsg;
+                            wznowNasluch();
+                            return;
+                        }
                     }
-                } else {
-                    const err = await response.json();
-                    stanSystemuTxt.innerText = "BŁĄD AI: " + (err.error?.message || response.statusText);
-                    stanSystemuTxt.style.color = "#ff3b30";
-                    wznowNasluch(); // Błąd, wznów nasłuch
+                } catch (e) {
+                    console.log("Szukam połączenia...");
                 }
-            } catch (e) {
-                stanSystemuTxt.innerText = "Brak połączenia z chmurą AI.";
-                stanSystemuTxt.style.color = "#ff3b30";
-                wznowNasluch(); // Brak neta, wznów nasłuch
+            }
+
+            if (!udaloSie) {
+                stanSystemuTxt.innerText = "Brak połączenia. Spróbuj za chwilę.";
+                wznowNasluch();
             }
         }
 
         function powiedz(tekst) {
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
-            aktualnaWypowiedz.pitch = 0.7; 
-            aktualnaWypowiedz.rate = 1.0; 
             
-            czyMowi = true; stanSystemuTxt.innerText = "Gienek odpowiada...";
-            let interwalKlapania = setInterval(() => { usta.classList.toggle('mowi'); }, 150);
+            // Głos wyższy i szybszy, bardziej entuzjastyczny dla dziecka
+            aktualnaWypowiedz.pitch = 1.3; 
+            aktualnaWypowiedz.rate = 1.1; 
+            
+            czyMowi = true; 
+            stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
+            
+            // Animacja emocji na ustach (przełączanie między uśmiechem a zaciekawieniem)
+            let isSmile = true;
+            let interwalKlapania = setInterval(() => { 
+                isSmile = !isSmile;
+                if (isSmile) {
+                    usta.className = 'usta mowi'; // Wielki uśmiech
+                } else {
+                    usta.className = 'usta slucha'; // Okrągłe "O"
+                }
+            }, 200); // Wolniejsze, płynne kłapanie
             
             aktualnaWypowiedz.onend = () => {
-                clearInterval(interwalKlapania); usta.classList.remove('mowi'); czyMowi = false;
+                clearInterval(interwalKlapania); 
+                usta.className = 'usta slucha'; // Po skończeniu mowy wraca do zaciekawionego nasłuchiwania
+                czyMowi = false;
                 wznowNasluch();
             };
             
-            // Dla pewności upewniamy się, że mikrofon Safari jest ubity zanim Gienek się odezwie
             try { rozpoznawanieMowy.stop(); } catch(e){} 
             window.speechSynthesis.speak(aktualnaWypowiedz);
         }
 
-        // Funkcja pomocnicza wznawiająca nasłuch po zakończeniu przetwarzania
         function wznowNasluch() {
             przetwarzanieWToku = false;
-            stanSystemuTxt.innerText = "Nasłuchiwanie otoczenia...";
-            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500); // Pół sekundy opóźnienia, żeby echo ucichło
+            stanSystemuTxt.innerText = "Gienek pilnie słucha...";
+            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500); 
         }
     </script>
 </body>
