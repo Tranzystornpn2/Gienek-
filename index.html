@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 26.1 (Optymalizacja CPU)</title>
+    <title>Gienek 26.5 (Stała Pamięć EEPROM)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -14,12 +14,12 @@
         #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
-        .usta { background-color: #ff3366; margin-bottom: 30px; transition: border-radius 0.4s ease-out, width 0.4s ease-out, height 0.4s ease-out, background-color 0.4s, transform 0.15s ease-in-out; }
-        .emocja-neutralny { width: 100px; height: 40px; border-radius: 40px; box-shadow: 0 0 30px rgba(255,51,102,0.5); }
-        .emocja-radosc { width: 70%; max-width: 250px; height: 90px; border-radius: 20px 20px 100px 100px; background-color: #ff2a5f; box-shadow: 0 0 50px rgba(255,42,95,0.8); }
-        .emocja-zaskoczenie { width: 80px; height: 80px; border-radius: 50%; box-shadow: 0 0 40px rgba(255,51,102,0.7); }
-        .emocja-smutek { width: 60%; max-width: 200px; height: 45px; border-radius: 100px 100px 20px 20px; background-color: #8833ff; box-shadow: 0 0 30px rgba(136,51,255,0.6); }
-        .spi { width: 30%; max-width: 150px; height: 8px; border-radius: 10px; background: #444; box-shadow: none; transform: scale(1) !important; }
+        .usta { background-color: #ff3366; margin-bottom: 40px; transition: border-radius 0.4s ease-out, width 0.4s ease-out, height 0.4s ease-out, background-color 0.4s, transform 0.15s ease-in-out; }
+        .emocja-neutralny { width: 140px; height: 50px; border-radius: 50px; box-shadow: 0 0 35px rgba(255,51,102,0.5); }
+        .emocja-radosc { width: 85%; max-width: 320px; height: 130px; border-radius: 30px 30px 140px 140px; background-color: #ff2a5f; box-shadow: 0 0 60px rgba(255,42,95,0.8); }
+        .emocja-zaskoczenie { width: 120px; height: 120px; border-radius: 50%; box-shadow: 0 0 50px rgba(255,51,102,0.7); }
+        .emocja-smutek { width: 75%; max-width: 260px; height: 60px; border-radius: 120px 120px 30px 30px; background-color: #8833ff; box-shadow: 0 0 40px rgba(136,51,255,0.6); }
+        .spi { width: 30%; max-width: 150px; height: 10px; border-radius: 10px; background: #444; box-shadow: none; transform: scale(1) !important; }
         
         #debug { font-size: 15px; color: #888; text-align: center; position: absolute; bottom: 25px; width: 90%; word-break: break-word; }
         .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px;}
@@ -59,7 +59,7 @@
 
     <script>
         // ==========================================
-        const SUROWY_KLUCZ ="AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA"
+        const SUROWY_KLUCZ = "AQ.Ab8RN6IKATwdcx-ZdUrRKY1OVUNdytqpoWBjpWhpYYVW3XsSzA";
         const GEMINI_KEY = SUROWY_KLUCZ.trim();
         // ==========================================
 
@@ -75,7 +75,6 @@
         let przetwarzanieWToku = false; 
         let bezpiecznikTTS = null; 
         let czasOstatniejAktywnosci = Date.now(); 
-        
         let stanEmocji = 0; 
         
         let offsetX = parseInt(localStorage.getItem('gienekOffsetX')) || 0;
@@ -87,8 +86,6 @@
         let czasZmianyBladzenia = 0;
         let czasOstatniejTwarzy = Date.now();
         let mruga = false;
-        
-        // --- LIMITER OBROTÓW DLA KAMERY ---
         let czasOstatniejKlatki = 0; 
 
         const dostepneModele = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
@@ -151,9 +148,7 @@
                         docelowyY = Math.max(0, Math.min(180, Math.round(160 - (cy * 140)) + offsetY));
                         
                         ostatniX = docelowyX; ostatniY = docelowyY;
-                        czasOstatniejTwarzy = teraz;
-                        widziKogos = true;
-                        czasOstatniejAktywnosci = teraz; 
+                        czasOstatniejTwarzy = teraz; widziKogos = true; czasOstatniejAktywnosci = teraz; 
                     } catch(e) {}
                 }
 
@@ -191,13 +186,11 @@
             const camera = new Camera(videoElement, {
                 onFrame: async () => { 
                     let teraz = Date.now();
-                    // ZAWÓR DŁAWIĄCY (THROTTLE): Analiza twarzy MAX 6-7 razy na sekundę (co 150ms)
                     if (teraz - czasOstatniejKlatki > 150) {
                         czasOstatniejKlatki = teraz;
                         try { await faceDetection.send({image: videoElement}); } catch(e) {}
                     }
-                }, 
-                width: 320, height: 240
+                }, width: 320, height: 240
             });
             camera.start();
         }
@@ -270,8 +263,20 @@
         async function zapytajGemini(pytanie) {
             stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
             
-            const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, niesamowicie kreatywny robot przyjaciel dla 3,5-letniej Klementynki. WIDZISZ obraz z kamery. 
-ZASADY: 1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 2. Jeśli poprosi o BAJKĘ, opowiedz długą, piękną historię! 3. WYMÓG ABSOLUTNY: Na samym końcu swojej wypowiedzi MUSISZ dopisać w nawiasach kwadratowych jedną emocję, np: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY]. Pytanie Klementynki: ${pytanie}`;
+            // POBRANIE WSPOMNIEŃ Z PAMIĘCI URZĄDZENIA
+            let wgranaPamiec = localStorage.getItem('gienekPamiec') || "Nie masz jeszcze żadnych specjalnych wspomnień zapisanych w bazie.";
+            
+            // NOWY PROMPT Z OBSŁUGĄ WSPOMNIEŃ
+            const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, niesamowicie kreatywny robot przyjaciel dla 3,5-letniej Klementynki. WIDZISZ obraz z kamery. Jesteście w środku rozmowy!
+Oto rzeczy, które zapamiętałeś do tej pory: ${wgranaPamiec}
+
+ZASADY: 
+1. NIGDY się nie witaj. Odpowiadaj od razu. 
+2. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). Jeśli prosi o BAJKĘ, opowiedz długą!
+3. ZAPAMIĘTYWANIE: Jeśli rozmówca każe ci coś zapamiętać (np. "zapamiętaj że tata lubi kawę"), to na SAMYM POCZĄTKU swojej wypowiedzi dopisz niewidoczny dla nich kod: [ZAPAMIETAJ: Tata lubi kawę]. Mój system to przechwyci i zapisze do twojej bazy.
+4. FORMATOWANIE BAZY: Jeśli rozmówca powie "zapomnij wszystko", dopisz na początku: [ZAPOMNIJ].
+5. WYMÓG ABSOLUTNY: Na samym końcu swojej wypowiedzi MUSISZ dopisać w nawiasach kwadratowych jedną emocję, np: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY]. 
+Pytanie: ${pytanie}`;
 
             let czesciWiadomosci = [{ text: PROMPT_DLA_DZIECKA }];
             let zdjecieB64 = zrobZdjecieDlaAI();
@@ -292,6 +297,23 @@ ZASADY: 1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 2. Jeśli po
                         const data = await response.json();
                         let odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (odp) { 
+                            // 1. OBSŁUGA ZAPAMIĘTYWANIA
+                            let wykrPamiec = odp.match(/\[ZAPAMIETAJ:\s*(.*?)\]/i);
+                            if (wykrPamiec) {
+                                let noweWspomnienie = wykrPamiec[1].trim();
+                                let obecnaPamiec = localStorage.getItem('gienekPamiec') || "";
+                                localStorage.setItem('gienekPamiec', obecnaPamiec + " " + noweWspomnienie + ".");
+                                console.log("Gienek zapisuje: " + noweWspomnienie);
+                                setTimeout(() => { stanSystemuTxt.innerText = "Trwale zapisałem to w pamięci!"; }, 500);
+                            }
+                            
+                            // 1b. OBSŁUGA CZYSZCZENIA PAMIĘCI
+                            if (odp.includes('[ZAPOMNIJ]')) {
+                                localStorage.removeItem('gienekPamiec');
+                                setTimeout(() => { stanSystemuTxt.innerText = "Sformatowałem dysk twardy!"; }, 500);
+                            }
+
+                            // 2. PARSOWANIE EMOCJI
                             let wykrEmocja = odp.match(/\[(RADOSC|ZASKOCZENIE|SMUTEK|NEUTRALNY)\]/i);
                             let klasaUsty = 'emocja-neutralny'; stanEmocji = 1;
 
@@ -302,6 +324,7 @@ ZASADY: 1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 2. Jeśli po
                                 else if (em === 'SMUTEK') { klasaUsty = 'emocja-smutek'; stanEmocji = 4; }
                             }
                             
+                            // 3. OCZYSZCZENIE TEKSTU Z ZNACZNIKÓW DLA SYNTEZATORA
                             let czystyTekst = odp.replace(/\[.*?\]/g, '').trim();
                             powiedz(czystyTekst, klasaUsty); 
                             udaloSie = true; break; 
@@ -319,9 +342,17 @@ ZASADY: 1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 2. Jeśli po
         let interwalKlapania;
         function powiedz(tekst, klasaUsty = 'emocja-neutralny') {
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
-            aktualnaWypowiedz.lang = 'pl-PL'; aktualnaWypowiedz.pitch = 1.1; aktualnaWypowiedz.rate = 0.95;  
+            aktualnaWypowiedz.lang = 'pl-PL'; 
+            aktualnaWypowiedz.pitch = 1.0; 
+            aktualnaWypowiedz.rate = 0.95;  
             
-            czyMowi = true; stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
+            czyMowi = true; 
+            
+            // Jesli nie mignelo powiadomienie o zapisie, pokaz status mowy
+            if (!stanSystemuTxt.innerText.includes("zapisałem")) {
+                stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
+            }
+            
             usta.className = `usta ${klasaUsty}`;
             
             let przewidywanyCzas = 15000 + (tekst.length * 130);
@@ -333,8 +364,8 @@ ZASADY: 1. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). 2. Jeśli po
             
             interwalKlapania = setInterval(() => { 
                 rosnace = !rosnace;
-                usta.style.transform = rosnace ? 'scaleY(1.2) scaleX(1.05)' : 'scaleY(0.8) scaleX(0.95)'; 
-            }, 200); 
+                usta.style.transform = rosnace ? 'scaleY(1.3) scaleX(1.05)' : 'scaleY(0.7) scaleX(0.95)'; 
+            }, 250); 
             
             aktualnaWypowiedz.onend = () => { wymusKoniecMowy(); };
             aktualnaWypowiedz.onerror = () => { wymusKoniecMowy(); };
