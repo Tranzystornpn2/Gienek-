@@ -260,7 +260,7 @@
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } catch(e) {}
         }
 
-        async function zapytajGemini(pytanie) {
+    async function zapytajGemini(pytanie) {
             stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
             
             let wgranaPamiec = localStorage.getItem('gienekPamiec') || "Nie masz jeszcze żadnych specjalnych wspomnień zapisanych w bazie.";
@@ -285,9 +285,15 @@ Pytanie: ${pytanie}`;
 
             for (let model of dostepneModele) {
                 try {
+                    // WYSYŁAMY KLUCZ DWUTOROWO (Parametr w URL + Nagłówek)
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+                    
                     const response = await fetch(url, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        method: 'POST', 
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'x-goog-api-key': GEMINI_KEY // Autoryzacja dla nowych kluczy AQ
+                        },
                         body: JSON.stringify({ contents: [{ parts: czesciWiadomosci }] })
                     });
 
@@ -300,7 +306,6 @@ Pytanie: ${pytanie}`;
                                 let noweWspomnienie = wykrPamiec[1].trim();
                                 let obecnaPamiec = localStorage.getItem('gienekPamiec') || "";
                                 localStorage.setItem('gienekPamiec', obecnaPamiec + " " + noweWspomnienie + ".");
-                                console.log("Gienek zapisuje: " + noweWspomnienie);
                                 setTimeout(() => { stanSystemuTxt.innerText = "Trwale zapisałem to w pamięci!"; }, 500);
                             }
                             
@@ -320,15 +325,19 @@ Pytanie: ${pytanie}`;
                             }
                             
                             let czystyTekst = odp.replace(/\[.*?\]/g, '').trim();
-                            if (czystyTekst.length < 2) czystyTekst = "Zrozumiałem!";
+                            if (czystyTekst.length < 2) czystyTekst = "Zrozumiałem, kontynuujmy.";
                             
                             powiedz(czystyTekst, klasaUsty); 
                             udaloSie = true; break; 
                         }
                     } else {
+                        // Pobranie dokładnego opisu błędu 401 z serwera Google
+                        const errData = await response.json();
+                        console.error("ODRZUCONO (Błąd API): ", errData);
+                        
                         if (response.status === 503 || response.status === 429 || response.status === 404) continue; 
-                        else { 
-                            powiedz("Błąd autoryzacji. Sprawdź czy podałeś prawidłowy klucz API.", "emocja-smutek");
+                        else if (response.status === 401) { 
+                            powiedz("Mój klucz jeszcze się nie aktywował, albo jest błędny.", "emocja-smutek");
                             return; 
                         }
                     }
