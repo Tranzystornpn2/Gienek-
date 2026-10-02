@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 26.5 (Stała Pamięć EEPROM)</title>
+    <title>Gienek 26.6 (Stała Pamięć EEPROM + Fix API)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -115,7 +115,7 @@
                 videoElement.srcObject = strumien;
             } catch(e) { }
 
-            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWÓJ_KLUCZ" || GEMINI_KEY === "") {
+            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWOJ_KLUCZ_AQ" || GEMINI_KEY === "") {
                 stanSystemuTxt.innerText = "BŁĄD: ZAPOMNIAŁEŚ KLUCZA API!";
                 stanSystemuTxt.style.color = "#ff3b30";
                 return;
@@ -213,7 +213,7 @@
 
         function uruchomSluch() {
             window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Brak obsługi rozpoznawania mowy w Safari."; return; }
+            if (!window.SpeechRecognition) { stanSystemuTxt.innerText = "Brak obsługi rozpoznawania mowy w przeglądarce."; return; }
 
             rozpoznawanieMowy = new SpeechRecognition();
             rozpoznawanieMowy.lang = 'pl-PL'; rozpoznawanieMowy.continuous = true; rozpoznawanieMowy.interimResults = false;
@@ -263,10 +263,8 @@
         async function zapytajGemini(pytanie) {
             stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
             
-            // POBRANIE WSPOMNIEŃ Z PAMIĘCI URZĄDZENIA
             let wgranaPamiec = localStorage.getItem('gienekPamiec') || "Nie masz jeszcze żadnych specjalnych wspomnień zapisanych w bazie.";
             
-            // NOWY PROMPT Z OBSŁUGĄ WSPOMNIEŃ
             const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, niesamowicie kreatywny robot przyjaciel dla 3,5-letniej Klementynki. WIDZISZ obraz z kamery. Jesteście w środku rozmowy!
 Oto rzeczy, które zapamiętałeś do tej pory: ${wgranaPamiec}
 
@@ -297,7 +295,6 @@ Pytanie: ${pytanie}`;
                         const data = await response.json();
                         let odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (odp) { 
-                            // 1. OBSŁUGA ZAPAMIĘTYWANIA
                             let wykrPamiec = odp.match(/\[ZAPAMIETAJ:\s*(.*?)\]/i);
                             if (wykrPamiec) {
                                 let noweWspomnienie = wykrPamiec[1].trim();
@@ -307,14 +304,12 @@ Pytanie: ${pytanie}`;
                                 setTimeout(() => { stanSystemuTxt.innerText = "Trwale zapisałem to w pamięci!"; }, 500);
                             }
                             
-                            // 1b. OBSŁUGA CZYSZCZENIA PAMIĘCI
                             if (odp.includes('[ZAPOMNIJ]')) {
                                 localStorage.removeItem('gienekPamiec');
                                 setTimeout(() => { stanSystemuTxt.innerText = "Sformatowałem dysk twardy!"; }, 500);
                             }
 
-                            // 2. PARSOWANIE EMOCJI
-                            let wykrEmocja = odp.match(/\[(RADOSC|ZASKOCZENIE|SMUTEK|NEUTRALNY)\]/i);
+                            let wykrEmocja = odp.match(/\[(RADOSC\vert{}ZASKOCZENIE\vert{}SMUTEK\vert{}NEUTRALNY)\]/i);
                             let klasaUsty = 'emocja-neutralny'; stanEmocji = 1;
 
                             if (wykrEmocja) {
@@ -324,19 +319,25 @@ Pytanie: ${pytanie}`;
                                 else if (em === 'SMUTEK') { klasaUsty = 'emocja-smutek'; stanEmocji = 4; }
                             }
                             
-                            // 3. OCZYSZCZENIE TEKSTU Z ZNACZNIKÓW DLA SYNTEZATORA
                             let czystyTekst = odp.replace(/\[.*?\]/g, '').trim();
+                            if (czystyTekst.length < 2) czystyTekst = "Zrozumiałem!";
+                            
                             powiedz(czystyTekst, klasaUsty); 
                             udaloSie = true; break; 
                         }
                     } else {
                         if (response.status === 503 || response.status === 429 || response.status === 404) continue; 
-                        else { wznowNasluch(); return; }
+                        else { 
+                            powiedz("Błąd autoryzacji. Sprawdź czy podałeś prawidłowy klucz API.", "emocja-smutek");
+                            return; 
+                        }
                     }
                 } catch (e) { }
             }
 
-            if (!udaloSie) wznowNasluch();
+            if (!udaloSie) {
+                powiedz("Mam problem z siecią, nie mogę połączyć się z serwerem.", "emocja-smutek");
+            }
         }
 
         let interwalKlapania;
@@ -348,7 +349,6 @@ Pytanie: ${pytanie}`;
             
             czyMowi = true; 
             
-            // Jesli nie mignelo powiadomienie o zapisie, pokaz status mowy
             if (!stanSystemuTxt.innerText.includes("zapisałem")) {
                 stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
             }
