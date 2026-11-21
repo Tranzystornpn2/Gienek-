@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 26.7 (Bezpieczny Klucz + Diagnostyka)</title>
+    <title>Gienek 27.0 (Groq API)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -48,11 +48,11 @@
     </div>
 
     <div id="apiModal">
-        <h3 style="margin-top:0; color:#ff3366;">Klucz API Gemini</h3>
-        <p style="font-size:13px; color:#ccc; margin:0;">Zapisywany tylko w telefonie (nie na GitHubie)</p>
-        <input type="text" id="apiInput" placeholder="Wklej nowy klucz API..." autocomplete="off">
+        <h3 style="margin-top:0; color:#ff3366;">Klucz API Groq</h3>
+        <p style="font-size:13px; color:#ccc; margin:0;">Wklej klucz z console.groq.com (zaczyna się od gsk_)</p>
+        <input type="text" id="apiInput" placeholder="gsk_..." autocomplete="off">
         <button class="btnAkcja btnKlucz" onclick="zapiszKluczAPI()">ZAPISZ I URUCHOM</button>
-        <p id="apiError" style="color:#ff3b30; font-size:13px; display:none; margin-top:8px;">Klucz jest za krótki.</p>
+        <p id="apiError" style="color:#ff3b30; font-size:13px; display:none; margin-top:8px;">Klucz Groq musi zaczynać się od gsk_.</p>
     </div>
 
     <div id="panelTrymera">
@@ -66,11 +66,11 @@
         </div>
         <p>X: <span id="txtOffX" style="color:white; font-weight:bold;">0</span> | Y: <span id="txtOffY" style="color:white; font-weight:bold;">0</span></p>
         <button id="zapiszBtn" onclick="zapiszTrymer()">ZAPISZ</button>
-        <button class="btnAkcja btnKlucz" onclick="zmienKlucz()">ZMIEŃ KLUCZ API</button>
+        <button class="btnAkcja btnKlucz" onclick="zmienKlucz()">ZMIEŃ KLUCZ GROQ</button>
     </div>
 
     <script>
-        let GEMINI_KEY = (localStorage.getItem('gienekApiKey') || "").replace(/\s+/g, '');
+        let GROQ_KEY = (localStorage.getItem('gienekGroqKey') || "").replace(/\s+/g, '');
 
         const usta = document.getElementById('ustaGienka');
         const stanSystemuTxt = document.getElementById('stanSystemu');
@@ -98,7 +98,13 @@
         let mruga = false;
         let czasOstatniejKlatki = 0; 
 
-        const dostepneModele = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+        // Najpierw modele z obrazem z kamery (Llama 4), w razie braku fallback na szybkie modele tekstowe
+        const dostepneModele = [
+            { id: "meta-llama/llama-4-scout-17b-16e-instruct", vision: true },
+            { id: "meta-llama/llama-4-maverick-17b-128e-instruct", vision: true },
+            { id: "llama-3.3-70b-versatile", vision: false },
+            { id: "llama-3.1-8b-instant", vision: false }
+        ];
 
         function cyklMrugania() {
             if (trybAktywny && !czyMowi) { mruga = true; setTimeout(() => { mruga = false; }, 150); }
@@ -123,12 +129,12 @@
         }
         function zmienKlucz() {
             document.getElementById('panelTrymera').style.display = 'none';
-            document.getElementById('apiInput').value = GEMINI_KEY;
+            document.getElementById('apiInput').value = GROQ_KEY;
             document.getElementById('apiModal').style.display = 'block';
         }
 
         function startPrzycisk() {
-            if (!GEMINI_KEY || GEMINI_KEY.length < 15) {
+            if (!GROQ_KEY || !GROQ_KEY.startsWith('gsk_') || GROQ_KEY.length < 20) {
                 document.getElementById('apiModal').style.display = 'block';
                 return;
             }
@@ -137,16 +143,19 @@
 
         function zapiszKluczAPI() {
             const k = document.getElementById('apiInput').value.replace(/\s+/g, '');
-            if (k.length < 15) {
+            if (!k.startsWith('gsk_') || k.length < 20) {
                 document.getElementById('apiError').style.display = 'block';
                 return;
             }
-            GEMINI_KEY = k;
-            localStorage.setItem('gienekApiKey', k);
+            GROQ_KEY = k;
+            localStorage.setItem('gienekGroqKey', k);
             document.getElementById('apiError').style.display = 'none';
             document.getElementById('apiModal').style.display = 'none';
             if (!uruchomiony) uruchomiOS();
-            else stanSystemuTxt.innerText = "Nowy klucz zapisany. Słucham...";
+            else {
+                stanSystemuTxt.style.color = "#ff3366";
+                stanSystemuTxt.innerText = "Nowy klucz Groq zapisany. Słucham...";
+            }
         }
 
         function uruchomiOS() {
@@ -291,7 +300,7 @@
                     przetwarzanieWToku = true;
                     try { rozpoznawanieMowy.stop(); } catch (e) {} 
                     
-                    await zapytajGemini(tekst);
+                    await zapytajGroq(tekst);
                 }
             };
             
@@ -309,44 +318,56 @@
             try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } catch (e) {}
         }
 
-        async function zapytajGemini(pytanie) {
+        async function zapytajGroq(pytanie) {
             stanSystemuTxt.style.color = "#ff3366";
-            stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
+            stanSystemuTxt.innerText = "Zastanawiam się (Groq)...";
             
             let wgranaPamiec = localStorage.getItem('gienekPamiec') || "Nie masz jeszcze żadnych specjalnych wspomnień zapisanych w bazie.";
             
-            const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, niesamowicie kreatywny robot przyjaciel dla 3,5-letniej Klementynki. WIDZISZ obraz z kamery. Jesteście w środku rozmowy!
+            const PROMPT_DLA_DZIECKA = `Jesteś Gienek, wesoły, kreatywny robot przyjaciel dla 3,5-letniej Klementynki. Jesteście w środku rozmowy!
 Oto rzeczy, które zapamiętałeś do tej pory: ${wgranaPamiec}
 
-ZASADY: 
-1. NIGDY się nie witaj. Odpowiadaj od razu. 
-2. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). Jeśli prosi o BAJKĘ, opowiedz długą!
-3. ZAPAMIĘTYWANIE: Jeśli rozmówca każe ci coś zapamiętać (np. "zapamiętaj że tata lubi kawę"), to na SAMYM POCZĄTKU swojej wypowiedzi dopisz niewidoczny dla nich kod: [ZAPAMIETAJ: Tata lubi kawę]. Mój system to przechwyci i zapisze do twojej bazy.
-4. FORMATOWANIE BAZY: Jeśli rozmówca powie "zapomnij wszystko", dopisz na początku: [ZAPOMNIJ].
-5. WYMÓG ABSOLUTNY: Na samym końcu swojej wypowiedzi MUSISZ dopisać w nawiasach kwadratowych jedną emocję, np: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY]. 
+ZASADY:
+1. Odpowiadaj WYŁĄCZNIE po polsku, prostym tekstem bez gwiazdek, pogrubień i emotikon.
+2. NIGDY się nie witaj. Odpowiadaj od razu.
+3. Na pytania odpowiadaj naturalnie i krótko (2-3 zdania). Jeśli prosi o BAJKĘ, opowiedz dłuższą.
+4. Jeśli dostałeś obraz z kamery i rozmówca pyta co widzisz, opisz krótko to, co jest na zdjęciu.
+5. ZAPAMIĘTYWANIE: Jeśli rozmówca każe ci coś zapamiętać (np. "zapamiętaj że tata lubi kawę"), na SAMYM POCZĄTKU wypowiedzi dopisz kod: [ZAPAMIETAJ: Tata lubi kawę].
+6. FORMATOWANIE BAZY: Jeśli rozmówca powie "zapomnij wszystko", dopisz na początku: [ZAPOMNIJ].
+7. WYMÓG ABSOLUTNY: Na samym końcu wypowiedzi dopisz w nawiasach kwadratowych jedną emocję: [RADOSC] lub [ZASKOCZENIE] lub [SMUTEK] lub [NEUTRALNY].
 Pytanie: ${pytanie}`;
 
-            let czesciWiadomosci = [{ text: PROMPT_DLA_DZIECKA }];
             let zdjecieB64 = zrobZdjecieDlaAI();
-            if (zdjecieB64) czesciWiadomosci.push({ inlineData: { mimeType: "image/jpeg", data: zdjecieB64 } });
-
             let udaloSie = false;
-            let ostatniBlad = "Brak odpowiedzi z serwera";
+            let ostatniBlad = "Brak odpowiedzi z serwera Groq";
 
             for (let model of dostepneModele) {
                 try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
-                    
-                    const response = await fetch(url, {
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contents: [{ parts: czesciWiadomosci }] })
+                    const userContent = (model.vision && zdjecieB64)
+                        ? [
+                            { type: "text", text: PROMPT_DLA_DZIECKA },
+                            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${zdjecieB64}` } }
+                          ]
+                        : PROMPT_DLA_DZIECKA;
+
+                    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${GROQ_KEY}`
+                        },
+                        body: JSON.stringify({
+                            model: model.id,
+                            messages: [{ role: "user", content: userContent }],
+                            temperature: 0.7,
+                            max_tokens: 450
+                        })
                     });
 
                     if (response.ok) {
                         const data = await response.json();
-                        let odp = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (odp) { 
+                        let odp = data.choices?.[0]?.message?.content;
+                        if (odp) {
                             let wykrPamiec = odp.match(/\[ZAPAMIETAJ:\s*(.*?)\]/i);
                             if (wykrPamiec) {
                                 let noweWspomnienie = wykrPamiec[1].trim();
@@ -354,7 +375,7 @@ Pytanie: ${pytanie}`;
                                 localStorage.setItem('gienekPamiec', obecnaPamiec + " " + noweWspomnienie + ".");
                                 setTimeout(() => { stanSystemuTxt.innerText = "Trwale zapisałem to w pamięci!"; }, 500);
                             }
-                            
+
                             if (odp.includes('[ZAPOMNIJ]')) {
                                 localStorage.removeItem('gienekPamiec');
                                 setTimeout(() => { stanSystemuTxt.innerText = "Sformatowałem dysk twardy!"; }, 500);
@@ -369,12 +390,12 @@ Pytanie: ${pytanie}`;
                                 else if (em === 'ZASKOCZENIE') { klasaUsty = 'emocja-zaskoczenie'; stanEmocji = 3; }
                                 else if (em === 'SMUTEK') { klasaUsty = 'emocja-smutek'; stanEmocji = 4; }
                             }
-                            
-                            let czystyTekst = odp.replace(/\[.*?\]/g, '').trim();
+
+                            let czystyTekst = odp.replace(/\[.*?\]/g, '').replace(/[*#_`]/g, '').trim();
                             if (czystyTekst.length < 2) czystyTekst = "Zrozumiałem, kontynuujmy.";
-                            
-                            powiedz(czystyTekst, klasaUsty); 
-                            udaloSie = true; break; 
+
+                            powiedz(czystyTekst, klasaUsty);
+                            udaloSie = true; break;
                         }
                     } else {
                         let opis = "";
@@ -382,31 +403,37 @@ Pytanie: ${pytanie}`;
                             const errData = await response.json();
                             opis = errData?.error?.message || "";
                         } catch (e) {}
-                        ostatniBlad = `BŁĄD ${response.status} (${model}): ${opis}`;
-                        
-                        if (response.status === 503 || response.status === 429 || response.status === 404) {
-                            continue;
-                        } else {
+                        ostatniBlad = `BŁĄD ${response.status} (${model.id}): ${opis}`;
+
+                        if (response.status === 401) {
                             stanSystemuTxt.style.color = "#ff3b30";
                             stanSystemuTxt.innerText = ostatniBlad;
-                            powiedz("Błąd API numer " + response.status + ". Sprawdź opis na ekranie.", "emocja-smutek");
+                            powiedz("Nieprawidłowy klucz Groq. Sprawdź go w ustawieniach.", "emocja-smutek");
                             return;
                         }
+                        if (response.status === 400 || response.status === 404 || response.status === 429 || response.status === 503) {
+                            continue;
+                        }
+                        stanSystemuTxt.style.color = "#ff3b30";
+                        stanSystemuTxt.innerText = ostatniBlad;
+                        powiedz("Błąd Groq numer " + response.status + ". Sprawdź komunikat na ekranie.", "emocja-smutek");
+                        return;
                     }
                 } catch (e) {
-                    ostatniBlad = `BŁĄD SIECI (${model}): ${e.message}`;
+                    ostatniBlad = `BŁĄD SIECI (${model.id}): ${e.message}`;
                 }
             }
 
             if (!udaloSie) {
                 stanSystemuTxt.style.color = "#ff3b30";
                 stanSystemuTxt.innerText = ostatniBlad;
-                powiedz("Nie udało się połączyć z serwerem. Sprawdź komunikat na ekranie.", "emocja-smutek");
+                powiedz("Nie udało się połączyć z Groq. Sprawdź komunikat na ekranie.", "emocja-smutek");
             }
         }
 
         let interwalKlapania;
         function powiedz(tekst, klasaUsty = 'emocja-neutralny') {
+            window.speechSynthesis.cancel();
             aktualnaWypowiedz = new SpeechSynthesisUtterance(tekst);
             aktualnaWypowiedz.lang = 'pl-PL'; 
             aktualnaWypowiedz.pitch = 1.0; 
