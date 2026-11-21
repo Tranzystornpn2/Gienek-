@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Gienek 26.6 (Stała Pamięć EEPROM + Fix API)</title>
+    <title>Gienek 26.7 (Bezpieczny Klucz + Diagnostyka)</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
@@ -11,7 +11,7 @@
 
     <style>
         body { background: #050505; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: 'Comic Sans MS', sans-serif; overflow: hidden; }
-        #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100;}
+        #startBtn { padding: 20px 40px; font-size: 24px; font-weight: bold; background: #ff3b30; color: white; border: none; border-radius: 12px; cursor: pointer; z-index: 100; }
         video { position: absolute; opacity: 0.01; width: 10px; height: 10px; z-index: -100; pointer-events: none; }
         
         .usta { background-color: #ff3366; margin-bottom: 40px; transition: border-radius 0.4s ease-out, width 0.4s ease-out, height 0.4s ease-out, background-color 0.4s, transform 0.15s ease-in-out; }
@@ -21,20 +21,23 @@
         .emocja-smutek { width: 75%; max-width: 260px; height: 60px; border-radius: 120px 120px 30px 30px; background-color: #8833ff; box-shadow: 0 0 40px rgba(136,51,255,0.6); }
         .spi { width: 30%; max-width: 150px; height: 10px; border-radius: 10px; background: #444; box-shadow: none; transform: scale(1) !important; }
         
-        #debug { font-size: 15px; color: #888; text-align: center; position: absolute; bottom: 25px; width: 90%; word-break: break-word; }
-        .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px;}
+        #debug { font-size: 14px; color: #888; text-align: center; position: absolute; bottom: 20px; width: 92%; word-break: break-word; }
+        .mqtt-status { font-weight: bold; color: #555; display: block; margin-top: 5px; font-size: 12px; }
         
         #ustawieniaBtn { position: absolute; top: 20px; right: 20px; font-size: 35px; background: none; border: none; cursor: pointer; display: none; z-index: 50; }
-        #panelTrymera { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(20,20,20,0.95); padding: 25px; border-radius: 15px; text-align: center; border: 2px solid #00ffcc; z-index: 200; width: 80%; max-width: 350px;}
+        #panelTrymera, #apiModal { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(20,20,20,0.97); padding: 25px; border-radius: 15px; text-align: center; border: 2px solid #00ffcc; z-index: 200; width: 82%; max-width: 350px; }
+        #apiModal { border-color: #ff3366; z-index: 300; }
+        #apiInput { width: 92%; padding: 12px; margin: 12px 0; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; font-size: 15px; text-align: center; }
         .strzalki { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 20px 0; justify-content: center; }
-        .btnKierunek { padding: 15px; font-size: 24px; background: #333; color: white; border: none; border-radius: 10px; cursor: pointer;}
-        #zapiszBtn { padding: 15px 20px; font-size: 16px; background: #00ffcc; color: black; border: none; border-radius: 8px; width: 100%; font-weight: bold; cursor: pointer;}
+        .btnKierunek { padding: 15px; font-size: 24px; background: #333; color: white; border: none; border-radius: 10px; cursor: pointer; }
+        #zapiszBtn, .btnAkcja { padding: 14px 20px; font-size: 16px; background: #00ffcc; color: black; border: none; border-radius: 8px; width: 100%; font-weight: bold; cursor: pointer; margin-top: 8px; }
+        .btnKlucz { background: #ff3b30; color: white; }
     </style>
 </head>
 <body>
 
     <button id="ustawieniaBtn" onclick="pokazTrymer()">⚙️</button>
-    <button id="startBtn" onclick="uruchomiOS()">OBUDŹ GIENKA</button>
+    <button id="startBtn" onclick="startPrzycisk()">OBUDŹ GIENKA</button>
     
     <div class="usta spi" id="ustaGienka"></div>
     <video id="webcam" autoplay playsinline muted></video>
@@ -42,6 +45,14 @@
     <div id="debug">
         <span id="stanSystemu" style="color: #ff3366;">Gienek słodko śpi...</span>
         <span id="mqttStatus" class="mqtt-status">Sieć Neuralna: OFF</span>
+    </div>
+
+    <div id="apiModal">
+        <h3 style="margin-top:0; color:#ff3366;">Klucz API Gemini</h3>
+        <p style="font-size:13px; color:#ccc; margin:0;">Zapisywany tylko w telefonie (nie na GitHubie)</p>
+        <input type="text" id="apiInput" placeholder="Wklej nowy klucz API..." autocomplete="off">
+        <button class="btnAkcja btnKlucz" onclick="zapiszKluczAPI()">ZAPISZ I URUCHOM</button>
+        <p id="apiError" style="color:#ff3b30; font-size:13px; display:none; margin-top:8px;">Klucz jest za krótki.</p>
     </div>
 
     <div id="panelTrymera">
@@ -55,13 +66,11 @@
         </div>
         <p>X: <span id="txtOffX" style="color:white; font-weight:bold;">0</span> | Y: <span id="txtOffY" style="color:white; font-weight:bold;">0</span></p>
         <button id="zapiszBtn" onclick="zapiszTrymer()">ZAPISZ</button>
+        <button class="btnAkcja btnKlucz" onclick="zmienKlucz()">ZMIEŃ KLUCZ API</button>
     </div>
 
     <script>
-        // ==========================================
-        const SUROWY_KLUCZ = "AQ.Ab8RN6K2f8PX_-mJHvQWWqORv5m00bgEtBP8vEhprjpfgSkE8g";
-        const GEMINI_KEY = SUROWY_KLUCZ.trim();
-        // ==========================================
+        let GEMINI_KEY = (localStorage.getItem('gienekApiKey') || "").replace(/\s+/g, '');
 
         const usta = document.getElementById('ustaGienka');
         const stanSystemuTxt = document.getElementById('stanSystemu');
@@ -71,6 +80,7 @@
         let mostRadiowy = null; let gotowyDoWysylania = false; let ostWysylka = 0;
         let rozpoznawanieMowy = null; let trybAktywny = false; let czyMowi = false;
         let aktualnaWypowiedz = null; 
+        let uruchomiony = false;
         
         let przetwarzanieWToku = false; 
         let bezpiecznikTTS = null; 
@@ -88,7 +98,7 @@
         let mruga = false;
         let czasOstatniejKlatki = 0; 
 
-        const dostepneModele = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+        const dostepneModele = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
 
         function cyklMrugania() {
             if (trybAktywny && !czyMowi) { mruga = true; setTimeout(() => { mruga = false; }, 150); }
@@ -96,14 +106,55 @@
         }
         setTimeout(cyklMrugania, 2000);
 
-        function pokazTrymer() { document.getElementById('panelTrymera').style.display = 'block'; document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY; }
-        function trymuj(dx, dy) { if(dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; } else { offsetX += dx; offsetY += dy; } document.getElementById('txtOffX').innerText = offsetX; document.getElementById('txtOffY').innerText = offsetY; }
-        function zapiszTrymer() { localStorage.setItem('gienekOffsetX', offsetX); localStorage.setItem('gienekOffsetY', offsetY); document.getElementById('panelTrymera').style.display = 'none'; }
+        function pokazTrymer() {
+            document.getElementById('panelTrymera').style.display = 'block';
+            document.getElementById('txtOffX').innerText = offsetX;
+            document.getElementById('txtOffY').innerText = offsetY;
+        }
+        function trymuj(dx, dy) {
+            if (dx === 0 && dy === 0) { offsetX = 0; offsetY = 0; } else { offsetX += dx; offsetY += dy; }
+            document.getElementById('txtOffX').innerText = offsetX;
+            document.getElementById('txtOffY').innerText = offsetY;
+        }
+        function zapiszTrymer() {
+            localStorage.setItem('gienekOffsetX', offsetX);
+            localStorage.setItem('gienekOffsetY', offsetY);
+            document.getElementById('panelTrymera').style.display = 'none';
+        }
+        function zmienKlucz() {
+            document.getElementById('panelTrymera').style.display = 'none';
+            document.getElementById('apiInput').value = GEMINI_KEY;
+            document.getElementById('apiModal').style.display = 'block';
+        }
+
+        function startPrzycisk() {
+            if (!GEMINI_KEY || GEMINI_KEY.length < 15) {
+                document.getElementById('apiModal').style.display = 'block';
+                return;
+            }
+            uruchomiOS();
+        }
+
+        function zapiszKluczAPI() {
+            const k = document.getElementById('apiInput').value.replace(/\s+/g, '');
+            if (k.length < 15) {
+                document.getElementById('apiError').style.display = 'block';
+                return;
+            }
+            GEMINI_KEY = k;
+            localStorage.setItem('gienekApiKey', k);
+            document.getElementById('apiError').style.display = 'none';
+            document.getElementById('apiModal').style.display = 'none';
+            if (!uruchomiony) uruchomiOS();
+            else stanSystemuTxt.innerText = "Nowy klucz zapisany. Słucham...";
+        }
 
         function uruchomiOS() {
+            uruchomiony = true;
             window.speechSynthesis.speak(new SpeechSynthesisUtterance("")); 
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('ustawieniaBtn').style.display = 'block';
+            stanSystemuTxt.style.color = "#ff3366";
             stanSystemuTxt.innerText = "Start systemów...";
             uruchomSluch(); 
             setTimeout(uruchomReszte, 100);
@@ -113,17 +164,15 @@
             try {
                 const strumien = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: "user" } });
                 videoElement.srcObject = strumien;
-            } catch(e) { }
-
-            if (GEMINI_KEY === "TUTAJ_WKLEJ_SWOJ_KLUCZ_AQ" || GEMINI_KEY === "") {
-                stanSystemuTxt.innerText = "BŁĄD: ZAPOMNIAŁEŚ KLUCZA API!";
-                stanSystemuTxt.style.color = "#ff3b30";
-                return;
-            } 
+            } catch (e) { }
 
             const unikalnyID = 'gienek_ios_' + Math.random().toString(16).substring(2, 10);
             mostRadiowy = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: unikalnyID, keepalive: 60, clean: true });
-            mostRadiowy.on('connect', () => { gotowyDoWysylania = true; mqttStatus.innerText = "Sieć Neuralna: ONLINE"; mqttStatus.style.color = "#ff3366"; });
+            mostRadiowy.on('connect', () => {
+                gotowyDoWysylania = true;
+                mqttStatus.innerText = "Sieć Neuralna: ONLINE";
+                mqttStatus.style.color = "#ff3366";
+            });
             
             setTimeout(uruchomWzrok, 500);
         }
@@ -149,7 +198,7 @@
                         
                         ostatniX = docelowyX; ostatniY = docelowyY;
                         czasOstatniejTwarzy = teraz; widziKogos = true; czasOstatniejAktywnosci = teraz; 
-                    } catch(e) {}
+                    } catch (e) {}
                 }
 
                 if (!widziKogos) {
@@ -188,7 +237,7 @@
                     let teraz = Date.now();
                     if (teraz - czasOstatniejKlatki > 150) {
                         czasOstatniejKlatki = teraz;
-                        try { await faceDetection.send({image: videoElement}); } catch(e) {}
+                        try { await faceDetection.send({image: videoElement}); } catch (e) {}
                     }
                 }, width: 320, height: 240
             });
@@ -203,12 +252,13 @@
 
         function zrobZdjecieDlaAI() {
             try {
+                if (!videoElement.videoWidth) return null;
                 const canvas = document.createElement('canvas');
                 canvas.width = 320; canvas.height = 240;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
                 return canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-            } catch(e) { return null; }
+            } catch (e) { return null; }
         }
 
         function uruchomSluch() {
@@ -239,28 +289,28 @@
                     if (tekst.length < 3) return; 
                     
                     przetwarzanieWToku = true;
-                    try { rozpoznawanieMowy.stop(); } catch(e){} 
+                    try { rozpoznawanieMowy.stop(); } catch (e) {} 
                     
                     await zapytajGemini(tekst);
                 }
             };
             
             rozpoznawanieMowy.onerror = (event) => {
-                let errMSG = event.error;
-                stanSystemuTxt.innerText = "Błąd słuchu: " + errMSG;
-                if(event.error === 'no-speech' || event.error === 'network') {
-                    if(!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 500);
+                stanSystemuTxt.innerText = "Błąd słuchu: " + event.error;
+                if (event.error === 'no-speech' || event.error === 'network') {
+                    if (!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch (e) {} }, 500);
                 }
             };
 
             rozpoznawanieMowy.onend = () => { 
-                if (!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 200); 
+                if (!czyMowi && !przetwarzanieWToku) setTimeout(() => { try { rozpoznawanieMowy.start(); } catch (e) {} }, 200); 
             };
             
-            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } catch(e) {}
+            try { rozpoznawanieMowy.start(); stanSystemuTxt.innerText = "Powiedz 'Gienek' by wybudzić."; } catch (e) {}
         }
 
-    async function zapytajGemini(pytanie) {
+        async function zapytajGemini(pytanie) {
+            stanSystemuTxt.style.color = "#ff3366";
             stanSystemuTxt.innerText = "Zastanawiam się (i patrzę)...";
             
             let wgranaPamiec = localStorage.getItem('gienekPamiec') || "Nie masz jeszcze żadnych specjalnych wspomnień zapisanych w bazie.";
@@ -278,22 +328,18 @@ Pytanie: ${pytanie}`;
 
             let czesciWiadomosci = [{ text: PROMPT_DLA_DZIECKA }];
             let zdjecieB64 = zrobZdjecieDlaAI();
-            
             if (zdjecieB64) czesciWiadomosci.push({ inlineData: { mimeType: "image/jpeg", data: zdjecieB64 } });
 
             let udaloSie = false;
+            let ostatniBlad = "Brak odpowiedzi z serwera";
 
             for (let model of dostepneModele) {
                 try {
-                    // WYSYŁAMY KLUCZ DWUTOROWO (Parametr w URL + Nagłówek)
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`;
                     
                     const response = await fetch(url, {
                         method: 'POST', 
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'x-goog-api-key': GEMINI_KEY // Autoryzacja dla nowych kluczy AQ
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ contents: [{ parts: czesciWiadomosci }] })
                     });
 
@@ -314,7 +360,7 @@ Pytanie: ${pytanie}`;
                                 setTimeout(() => { stanSystemuTxt.innerText = "Sformatowałem dysk twardy!"; }, 500);
                             }
 
-                            let wykrEmocja = odp.match(/\[(RADOSC\vert{}ZASKOCZENIE\vert{}SMUTEK\vert{}NEUTRALNY)\]/i);
+                            let wykrEmocja = odp.match(/\[(RADOSC|ZASKOCZENIE|SMUTEK|NEUTRALNY)\]/i);
                             let klasaUsty = 'emocja-neutralny'; stanEmocji = 1;
 
                             if (wykrEmocja) {
@@ -331,21 +377,31 @@ Pytanie: ${pytanie}`;
                             udaloSie = true; break; 
                         }
                     } else {
-                        // Pobranie dokładnego opisu błędu 401 z serwera Google
-                        const errData = await response.json();
-                        console.error("ODRZUCONO (Błąd API): ", errData);
+                        let opis = "";
+                        try {
+                            const errData = await response.json();
+                            opis = errData?.error?.message || "";
+                        } catch (e) {}
+                        ostatniBlad = `BŁĄD ${response.status} (${model}): ${opis}`;
                         
-                        if (response.status === 503 || response.status === 429 || response.status === 404) continue; 
-                        else if (response.status === 401) { 
-                            powiedz("Mój klucz jeszcze się nie aktywował, albo jest błędny.", "emocja-smutek");
-                            return; 
+                        if (response.status === 503 || response.status === 429 || response.status === 404) {
+                            continue;
+                        } else {
+                            stanSystemuTxt.style.color = "#ff3b30";
+                            stanSystemuTxt.innerText = ostatniBlad;
+                            powiedz("Błąd API numer " + response.status + ". Sprawdź opis na ekranie.", "emocja-smutek");
+                            return;
                         }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    ostatniBlad = `BŁĄD SIECI (${model}): ${e.message}`;
+                }
             }
 
             if (!udaloSie) {
-                powiedz("Mam problem z siecią, nie mogę połączyć się z serwerem.", "emocja-smutek");
+                stanSystemuTxt.style.color = "#ff3b30";
+                stanSystemuTxt.innerText = ostatniBlad;
+                powiedz("Nie udało się połączyć z serwerem. Sprawdź komunikat na ekranie.", "emocja-smutek");
             }
         }
 
@@ -358,7 +414,7 @@ Pytanie: ${pytanie}`;
             
             czyMowi = true; 
             
-            if (!stanSystemuTxt.innerText.includes("zapisałem")) {
+            if (!stanSystemuTxt.innerText.includes("zapisałem") && !stanSystemuTxt.innerText.startsWith("BŁĄD")) {
                 stanSystemuTxt.innerText = "Gienek wesoło opowiada...";
             }
             
@@ -379,7 +435,7 @@ Pytanie: ${pytanie}`;
             aktualnaWypowiedz.onend = () => { wymusKoniecMowy(); };
             aktualnaWypowiedz.onerror = () => { wymusKoniecMowy(); };
             
-            try { rozpoznawanieMowy.stop(); } catch(e){} 
+            try { rozpoznawanieMowy.stop(); } catch (e) {} 
             window.speechSynthesis.speak(aktualnaWypowiedz);
         }
 
@@ -396,8 +452,10 @@ Pytanie: ${pytanie}`;
 
         function wznowNasluch() {
             przetwarzanieWToku = false;
-            if (trybAktywny) stanSystemuTxt.innerText = "Gienek pilnie słucha...";
-            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch(e){} }, 800); 
+            if (trybAktywny && !stanSystemuTxt.innerText.startsWith("BŁĄD")) {
+                stanSystemuTxt.innerText = "Gienek pilnie słucha...";
+            }
+            setTimeout(() => { try { rozpoznawanieMowy.start(); } catch (e) {} }, 800); 
         }
     </script>
 </body>
